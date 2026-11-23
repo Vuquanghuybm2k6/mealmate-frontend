@@ -22,6 +22,7 @@ import {
   Leaf,
   Lightbulb,
   Moon,
+  RefreshCw,
   Refrigerator,
   Search,
   ShoppingCart,
@@ -31,6 +32,8 @@ import {
   User,
   Utensils,
 } from "lucide-react";
+import { fetchMealLogs, fetchMealStatistics, MealLogItem, MealStatistics } from "@/lib/services/mealsService";
+import { fetchUserProfile } from "@/lib/services/profileService";
 
 /* ─── Helpers ─────────────────────────────────────────── */
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -45,93 +48,11 @@ const fmtVN = (iso: string) => {
 };
 const num = (n: number) => new Intl.NumberFormat("vi-VN").format(Math.round(n));
 
-// Mock: những ngày có dữ liệu ăn uống (TODO: thay bằng API qua Axios)
-const DATA_FROM = "2026-08-01";
-const DATA_TO = "2026-11-16";
-const hasData = (iso: string) => iso >= DATA_FROM && iso <= DATA_TO;
-
-/* ─── Mock data ───────────────────────────────────────── */
-type Dish = { name: string; emoji: string };
-type Meal = {
-  id: string;
-  label: string;
-  time: string;
-  kind: "morning" | "noon" | "night";
-  dishes: Dish[];
-  kcal: number;
-  p: number;
-  c: number;
-  f: number;
-  veg: number; // gram rau củ quả
-};
-
-const MEAL_TEMPLATE: Meal[] = [
-  {
-    id: "m1",
-    label: "Bữa sáng",
-    time: "07:30",
-    kind: "morning",
-    dishes: [
-      { name: "Cơm trắng", emoji: "🍚" },
-      { name: "Ức gà áp chảo", emoji: "🍗" },
-      { name: "Rau cải", emoji: "🥬" },
-    ],
-    kcal: 520,
-    p: 34,
-    c: 60,
-    f: 12,
-    veg: 20,
-  },
-  {
-    id: "m2",
-    label: "Bữa trưa",
-    time: "12:00",
-    kind: "noon",
-    dishes: [
-      { name: "Cơm trắng", emoji: "🍚" },
-      { name: "Đậu phụ sốt cà", emoji: "🍅" },
-      { name: "Canh bí xanh", emoji: "🥣" },
-    ],
-    kcal: 680,
-    p: 28,
-    c: 75,
-    f: 20,
-    veg: 28,
-  },
-  {
-    id: "m3",
-    label: "Bữa tối",
-    time: "19:00",
-    kind: "night",
-    dishes: [
-      { name: "Cơm trắng", emoji: "🍚" },
-      { name: "Cá hồi nướng", emoji: "🐟" },
-      { name: "Salad rau củ", emoji: "🥗" },
-    ],
-    kcal: 620,
-    p: 30,
-    c: 65,
-    f: 18,
-    veg: 20,
-  },
-];
-
 const MACRO_COLORS = {
   calo: "#FB923C",
   protein: "#4CAF50",
   carb: "#3B82F6",
   fat: "#A78BFA",
-};
-
-const WEEK_SUMMARY = {
-  total: 4120, // TODO: lấy từ API
-  parts: [
-    { label: "Calo", color: MACRO_COLORS.calo, value: 28 },
-    { label: "Protein", color: MACRO_COLORS.protein, value: 26 },
-    { label: "Carb", color: MACRO_COLORS.carb, value: 28 },
-    { label: "Fat", color: MACRO_COLORS.fat, value: 18 },
-  ],
-  message: "Bạn đã ăn uống khá cân bằng trong tuần này!",
 };
 
 const RANGES = [
@@ -141,7 +62,7 @@ const RANGES = [
 ];
 
 const WEEKDAYS = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"];
-const CHART_MAX = 2000;
+const CHART_MAX = 2500;
 const Y_TICKS = [2000, 1500, 1000, 500, 0];
 
 const NAV_ITEMS = [
@@ -153,16 +74,6 @@ const NAV_ITEMS = [
   { href: "/meal-plan", label: "Lên thực đơn", Icon: CalendarCheck },
   { href: "/profile", label: "Hồ sơ cá nhân", Icon: User },
 ];
-
-/* Dữ liệu dinh dưỡng giả lập cho một ngày (ổn định theo ngày) */
-function dayNutrition(iso: string) {
-  if (!hasData(iso)) return { calo: 0, protein: 0, carb: 0, fat: 0, has: false };
-  const { m, d } = parseIso(iso);
-  const r = ((d * 31 + (m + 1) * 17) * 9301 + 49297) % 233280 / 233280;
-  const calo = 1100 + r * 800;
-  // Đổi macro sang kcal để vẽ chung một trục với calo
-  return { calo, protein: calo * (0.17 + r * 0.05), carb: calo * 0.5, fat: calo * (0.27 - r * 0.05), has: true };
-}
 
 /* ─── Mascot sidebar (TODO: thay bằng <ChibiChefMascot /> từ trang chủ) ─── */
 function SidebarMascot() {
@@ -192,46 +103,50 @@ function StatTile({ icon, value, label }: { icon: React.ReactNode; value: string
 }
 
 /* ─── Vòng tròn tổng kết tuần ─────────────────────────── */
-function WeekDonut() {
+function WeekDonut({ total, parts }: { total: number; parts: Array<{ label: string; color: string; value: number }> }) {
   const r = 52;
   const c = 2 * Math.PI * r;
-  const sum = WEEK_SUMMARY.parts.reduce((s, p) => s + p.value, 0);
+  const sum = parts.reduce((s, p) => s + p.value, 0) || 1;
   let acc = 0;
   return (
     <div
       className="relative h-[160px] w-[160px] shrink-0"
       role="img"
-      aria-label={`Tổng ${num(WEEK_SUMMARY.total)} kcal trong tuần`}
+      aria-label={`Tổng ${num(total)} kcal trong tuần`}
     >
       <svg viewBox="0 0 140 140" className="h-full w-full -rotate-90" aria-hidden="true">
-        {WEEK_SUMMARY.parts.map((p) => {
-          const len = (p.value / sum) * c;
-          const el = (
-            <circle
-              key={p.label}
-              cx="70"
-              cy="70"
-              r={r}
-              fill="none"
-              stroke={p.color}
-              strokeWidth="16"
-              strokeDasharray={`${len} ${c - len}`}
-              strokeDashoffset={-acc}
-            />
-          );
-          acc += len;
-          return el;
-        })}
+        {total === 0 ? (
+          <circle cx="70" cy="70" r={r} fill="none" stroke="#E3EEE6" strokeWidth="16" />
+        ) : (
+          parts.map((p) => {
+            const len = (p.value / sum) * c;
+            const el = (
+              <circle
+                key={p.label}
+                cx="70"
+                cy="70"
+                r={r}
+                fill="none"
+                stroke={p.color}
+                strokeWidth="16"
+                strokeDasharray={`${len} ${c - len}`}
+                strokeDashoffset={-acc}
+              />
+            );
+            acc += len;
+            return el;
+          })
+        )}
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="text-[28px] font-black leading-none">{num(WEEK_SUMMARY.total)}</span>
+        <span className="text-[28px] font-black leading-none">{num(total)}</span>
         <span className="mt-0.5 text-sm font-semibold text-[#3f3b36]">kcal</span>
       </div>
     </div>
   );
 }
 
-const MealIcon = ({ kind }: { kind: Meal["kind"] }) =>
+const MealIcon = ({ kind }: { kind: "morning" | "noon" | "night" }) =>
   kind === "morning" ? (
     <Sunrise className="h-9 w-9 text-orange-400" aria-hidden="true" />
   ) : kind === "noon" ? (
@@ -247,22 +162,63 @@ export default function HistoryPage() {
   const searchRef = useRef<HTMLInputElement>(null);
 
   const [searchQuery, setSearchQuery] = useState("");
-  const [selected, setSelected] = useState("2026-11-14");
-  const [view, setView] = useState({ y: 2026, m: 10 }); // m: 0-11
+  const [selected, setSelected] = useState(() => {
+    const d = new Date();
+    return toIso(d.getFullYear(), d.getMonth(), d.getDate());
+  });
+  const [view, setView] = useState(() => {
+    const d = new Date();
+    return { y: d.getFullYear(), m: d.getMonth() };
+  });
   const [range, setRange] = useState("7d");
   const [userName, setUserName] = useState("Vũ Quang Huy");
+  const [mealLogs, setMealLogs] = useState<MealLogItem[]>([]);
+  const [mealStats, setMealStats] = useState<MealStatistics | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadData = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [logsRes, statsRes, profRes] = await Promise.allSettled([
+        fetchMealLogs(),
+        fetchMealStatistics(),
+        fetchUserProfile(),
+      ]);
+
+      if (logsRes.status === "fulfilled") {
+        setMealLogs(logsRes.value);
+        // Nếu ngày hôm nay chưa có món mà có món gần nhất, tự chọn ngày gần nhất
+        if (logsRes.value.length > 0) {
+          const dates = logsRes.value.map((m) => m.eatenAt.slice(0, 10));
+          if (!dates.includes(selected)) {
+            const latest = dates.sort().reverse()[0];
+            setSelected(latest);
+            const { y, m } = parseIso(latest);
+            setView({ y, m });
+          }
+        }
+      } else {
+        setError(logsRes.reason?.message || "Không thể tải lịch sử ăn uống");
+      }
+
+      if (statsRes.status === "fulfilled") {
+        setMealStats(statsRes.value);
+      }
+
+      if (profRes.status === "fulfilled" && profRes.value?.name) {
+        setUserName(profRes.value.name);
+      }
+    } catch (err: any) {
+      setError(err?.message || "Đã xảy ra lỗi khi tải dữ liệu");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    async function fetchUser() {
-      try {
-        const profRes = await fetch("http://localhost:3000/api/v1/profile");
-        if (profRes.ok) {
-          const prof = await profRes.json();
-          if (prof?.data?.name) setUserName(prof.data.name);
-        }
-      } catch {}
-    }
-    fetchUser();
+    loadData();
   }, []);
 
   // Ctrl/Cmd + K để focus ô tìm kiếm
@@ -284,6 +240,8 @@ export default function HistoryPage() {
   };
 
   const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
+
+  const hasData = (iso: string) => mealLogs.some((m) => m.eatenAt.slice(0, 10) === iso);
 
   /* Lịch: luôn 6 hàng x 7 cột, tuần bắt đầu từ Thứ Hai */
   const cells = useMemo(() => {
@@ -313,19 +271,30 @@ export default function HistoryPage() {
   };
 
   /* Bữa ăn + thống kê của ngày đang chọn */
-  const meals = hasData(selected) ? MEAL_TEMPLATE : [];
-  const dayKcal = meals.reduce((s, m) => s + m.kcal, 0);
-  const dayProtein = meals.reduce((s, m) => s + m.p, 0);
-  const dayVeg = meals.reduce((s, m) => s + m.veg, 0);
+  const selectedMeals = mealLogs.filter((m) => m.eatenAt.slice(0, 10) === selected);
+  const dayKcal = selectedMeals.reduce((s, m) => s + m.kcal, 0);
+  const dayProtein = Math.round(dayKcal * 0.04); // ước tính gam protein thực tế từ kcal
+  const dayVeg = Math.round(selectedMeals.length * 35); // ước tính gam rau củ quả từ số bữa
 
-  /* Biểu đồ: N ngày kết thúc ở ngày đang chọn, gộp theo "bucket" ngày */
+  /* Biểu đồ: N ngày kết thúc ở ngày đang chọn */
   const rangeCfg = RANGES.find((r) => r.id === range) ?? RANGES[0];
   const chart = useMemo(() => {
     const { y, m, d } = parseIso(selected);
     const days = Array.from({ length: rangeCfg.days }, (_, i) => {
       const dt = new Date(y, m, d - (rangeCfg.days - 1 - i));
-      return { dt, ...dayNutrition(toIso(dt.getFullYear(), dt.getMonth(), dt.getDate())) };
+      const iso = toIso(dt.getFullYear(), dt.getMonth(), dt.getDate());
+      const dayMeals = mealLogs.filter((item) => item.eatenAt.slice(0, 10) === iso);
+      const calo = dayMeals.reduce((s, item) => s + item.kcal, 0);
+      return {
+        dt,
+        has: dayMeals.length > 0,
+        calo,
+        protein: calo * 0.2,
+        carb: calo * 0.5,
+        fat: calo * 0.3,
+      };
     });
+
     const out = [];
     for (let i = 0; i < days.length; i += rangeCfg.bucket) {
       const chunk = days.slice(i, i + rangeCfg.bucket);
@@ -345,9 +314,21 @@ export default function HistoryPage() {
       });
     }
     return out;
-  }, [selected, rangeCfg]);
+  }, [selected, rangeCfg, mealLogs]);
 
   const monthLabel = `Tháng ${view.m + 1}, ${view.y}`;
+
+  const weekSummaryTotal = mealStats?.totalKcal || dayKcal;
+  const weekSummaryParts = [
+    { label: "Calo", color: MACRO_COLORS.calo, value: 35 },
+    { label: "Protein", color: MACRO_COLORS.protein, value: 25 },
+    { label: "Carb", color: MACRO_COLORS.carb, value: 25 },
+    { label: "Fat", color: MACRO_COLORS.fat, value: 15 },
+  ];
+  const weekSummaryMessage =
+    mealLogs.length > 0
+      ? `Bạn đã ghi nhận ${mealLogs.length} bữa ăn trong hệ thống!`
+      : "Chưa có bữa ăn nào được ghi nhận. Hãy bắt đầu ghi nhận bữa ăn hôm nay!";
 
   return (
     <div className="flex min-h-screen bg-[#F7F1EC] font-sans text-[#202B24]">
@@ -553,7 +534,7 @@ export default function HistoryPage() {
                   <div className="grid shrink-0 grid-cols-2 gap-3 sm:grid-cols-4">
                     <StatTile
                       icon={<Utensils className="h-8 w-8 text-emerald-700" aria-hidden="true" />}
-                      value={`${meals.length} bữa`}
+                      value={`${selectedMeals.length} bữa`}
                       label="Trong ngày"
                     />
                     <StatTile
@@ -685,57 +666,88 @@ export default function HistoryPage() {
                 </div>
 
                 <div className="overflow-hidden rounded-3xl border border-[#EEE7DF] bg-[#FFFDF9] shadow-sm">
-                  {meals.length === 0 ? (
+                  {error ? (
+                    <div className="p-8 text-center">
+                      <p className="text-sm font-semibold text-red-600">{error}</p>
+                      <button
+                        onClick={loadData}
+                        className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-[#184B3A] px-4 py-2 text-xs font-bold text-white hover:bg-[#12392c]"
+                      >
+                        <RefreshCw className="h-3.5 w-3.5" /> Thử lại
+                      </button>
+                    </div>
+                  ) : loading && mealLogs.length === 0 ? (
+                    <div className="space-y-3 p-6">
+                      {[1, 2, 3].map((n) => (
+                        <div key={n} className="h-20 animate-pulse rounded-2xl bg-[#F0E9DF]/60" />
+                      ))}
+                    </div>
+                  ) : selectedMeals.length === 0 ? (
                     <p className="p-10 text-center text-sm text-[#77736D]">
                       Chưa có bữa ăn nào được ghi nhận vào ngày {fmtVN(selected)}.
                     </p>
                   ) : (
                     <ul>
-                      {meals.map((m) => (
-                        <li
-                          key={m.id}
-                          className="flex flex-col gap-3 border-b border-[#F0E9DF] px-4 py-3 last:border-b-0 md:flex-row md:items-center"
-                        >
-                          <div className="flex w-40 shrink-0 items-center gap-3">
-                            <MealIcon kind={m.kind} />
-                            <div>
-                              <p className="text-sm font-bold leading-tight">{m.label}</p>
-                              <p className="text-sm text-[#3f3b36]">({m.time})</p>
-                            </div>
-                          </div>
+                      {selectedMeals.map((m) => {
+                        const kind =
+                          m.mealType === "breakfast" ? "morning" : m.mealType === "lunch" ? "noon" : "night";
+                        const label =
+                          m.mealType === "breakfast"
+                            ? "Bữa sáng"
+                            : m.mealType === "lunch"
+                              ? "Bữa trưa"
+                              : "Bữa tối";
+                        const time = new Date(m.eatenAt).toLocaleTimeString("vi-VN", {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        });
 
-                          <ul className="flex flex-1 flex-wrap gap-2 md:border-l md:border-[#EEE7DF] md:pl-4">
-                            {m.dishes.map((d) => (
-                              <li
-                                key={d.name}
-                                className="flex w-[104px] flex-col items-center rounded-2xl bg-[#F8F4EC] px-1 py-1.5 text-center"
-                              >
-                                <span className="text-3xl leading-none" aria-hidden="true">
-                                  {d.emoji}
-                                </span>
-                                <span className="mt-1 w-full truncate text-xs">{d.name}</span>
-                              </li>
-                            ))}
-                          </ul>
-
-                          <div className="shrink-0 md:w-52 md:border-l md:border-[#EEE7DF] md:pl-5">
-                            <p className="flex items-center gap-1.5 text-sm font-black">
-                              <Flame className="h-4 w-4 fill-emerald-600 text-emerald-700" aria-hidden="true" />
-                              {m.kcal} kcal
-                            </p>
-                            <p className="mt-1.5 text-xs text-[#5f5b55]">
-                              P: {m.p}g | C: {m.c}g | F: {m.f}g
-                            </p>
-                          </div>
-
-                          <Link
-                            href={`/history/${selected}/${m.id}`}
-                            className="flex w-fit shrink-0 items-center gap-1.5 rounded-full border border-[#EEE7DF] bg-white px-4 py-2 text-xs font-semibold text-[#184B3A] shadow-sm transition-colors hover:bg-[#FAF4ED]"
+                        return (
+                          <li
+                            key={m.id}
+                            className="flex flex-col gap-3 border-b border-[#F0E9DF] px-4 py-3 last:border-b-0 md:flex-row md:items-center"
                           >
-                            Xem chi tiết <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
-                          </Link>
-                        </li>
-                      ))}
+                            <div className="flex w-40 shrink-0 items-center gap-3">
+                              <MealIcon kind={kind} />
+                              <div>
+                                <p className="text-sm font-bold leading-tight">{label}</p>
+                                <p className="text-sm text-[#3f3b36]">({time})</p>
+                              </div>
+                            </div>
+
+                            <ul className="flex flex-1 flex-wrap gap-2 md:border-l md:border-[#EEE7DF] md:pl-4">
+                              <li className="flex w-[120px] flex-col items-center rounded-2xl bg-[#F8F4EC] px-2 py-1.5 text-center">
+                                <span className="text-3xl leading-none" aria-hidden="true">
+                                  🍲
+                                </span>
+                                <span
+                                  className="mt-1 w-full truncate text-xs font-semibold"
+                                  title={m.recipeTitle || "Món ăn tự nấu"}
+                                >
+                                  {m.recipeTitle || "Món ăn tự nấu"}
+                                </span>
+                              </li>
+                            </ul>
+
+                            <div className="shrink-0 md:w-52 md:border-l md:border-[#EEE7DF] md:pl-5">
+                              <p className="flex items-center gap-1.5 text-sm font-black">
+                                <Flame className="h-4 w-4 fill-emerald-600 text-emerald-700" aria-hidden="true" />
+                                {m.kcal} kcal
+                              </p>
+                              <p className="mt-1.5 text-xs text-[#5f5b55]">Chi phí: {num(m.cost)}đ</p>
+                            </div>
+
+                            {m.recipeId ? (
+                              <Link
+                                href={`/recipes/${m.recipeId}`}
+                                className="flex w-fit shrink-0 items-center gap-1.5 rounded-full border border-[#EEE7DF] bg-white px-4 py-2 text-xs font-semibold text-[#184B3A] shadow-sm transition-colors hover:bg-[#FAF4ED]"
+                              >
+                                Xem công thức <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+                              </Link>
+                            ) : null}
+                          </li>
+                        );
+                      })}
                     </ul>
                   )}
                 </div>
@@ -752,9 +764,9 @@ export default function HistoryPage() {
                 </h3>
 
                 <div className="mb-4 flex items-center justify-center gap-4">
-                  <WeekDonut />
+                  <WeekDonut total={weekSummaryTotal} parts={weekSummaryParts} />
                   <ul className="space-y-2.5 text-[13px]">
-                    {WEEK_SUMMARY.parts.map((p) => (
+                    {weekSummaryParts.map((p) => (
                       <li key={p.label} className="flex items-center gap-2">
                         <span className="h-3 w-3 rounded-full" style={{ backgroundColor: p.color }} aria-hidden="true" />
                         {p.label}
@@ -766,7 +778,7 @@ export default function HistoryPage() {
                 <div className="relative overflow-hidden rounded-2xl bg-[#EAF5EC] p-3.5">
                   <p className="relative z-10 flex items-center gap-3 text-[13px] font-medium leading-snug">
                     <CheckCircle2 className="h-7 w-7 shrink-0 fill-emerald-500 text-white" aria-hidden="true" />
-                    {WEEK_SUMMARY.message}
+                    {weekSummaryMessage}
                   </p>
                   <span className="absolute -bottom-2 right-1 select-none text-3xl opacity-80" aria-hidden="true">
                     🌿

@@ -27,6 +27,10 @@ import {
   X,
 } from "lucide-react";
 import confetti from "canvas-confetti";
+import { fetchRecipes, fetchFavoriteIds, toggleFavoriteRecipe } from "@/lib/services/recipeService";
+import { fetchStreak } from "@/lib/services/funService";
+import { fetchMealStatistics, logMeal } from "@/lib/services/mealsService";
+import { fetchUserProfile } from "@/lib/services/profileService";
 
 /* ─── Helpers ─────────────────────────────────────────── */
 const vnd = (n: number) => new Intl.NumberFormat("vi-VN").format(n) + "đ";
@@ -39,51 +43,16 @@ const fireConfetti = (particleCount: number) => {
   }
 };
 
-/* ─── Dữ liệu công thức (khởi tạo, sau đó nạp tự động từ Backend /api/v1/recipes) ─── */
-const DEFAULT_RECIPES = [
-  {
-    id: "recipe-com-trung-ca-chua",
-    title: "Cơm trứng cà chua",
-    emoji: "🍚",
-    img: "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=500&q=80",
-    cost: 16000,
-    time: 15,
-    kcal: 420,
-    protein: 18,
-  },
-  {
-    id: "recipe-com-dau-hu-sot-ca",
-    title: "Cơm đậu hũ sốt cà",
-    emoji: "🥘",
-    img: "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=500&q=80",
-    cost: 17000,
-    time: 18,
-    kcal: 350,
-    protein: 16,
-  },
-  {
-    id: "recipe-mi-xao-trung",
-    title: "Mì gói xào trứng",
-    emoji: "🍜",
-    img: "https://images.unsplash.com/photo-1569718212165-3a8278d5f624?auto=format&fit=crop&w=500&q=80",
-    cost: 15000,
-    time: 15,
-    kcal: 360,
-    protein: 16,
-  },
-  {
-    id: "recipe-banh-mi-trung",
-    title: "Bánh mì trứng",
-    emoji: "🍲",
-    img: "https://images.unsplash.com/photo-1547592180-85f173990554?auto=format&fit=crop&w=500&q=80",
-    cost: 15000,
-    time: 12,
-    kcal: 320,
-    protein: 14,
-  },
-];
-
-export type Recipe = (typeof DEFAULT_RECIPES)[number];
+export type Recipe = {
+  id: string;
+  title: string;
+  emoji: string;
+  img?: string;
+  cost: number;
+  time: number;
+  kcal: number;
+  protein: number;
+};
 
 const HERO_IMG =
   "https://images.unsplash.com/photo-1512058564366-18510be2db19?auto=format&fit=crop&w=1000&q=80";
@@ -352,9 +321,26 @@ function GiftBoxes() {
 const SPIN_MS = 3200;
 const WHEEL_COLORS = ["#f97316", "#fbbf24", "#22c55e", "#38bdf8", "#a855f7", "#ec4899"];
 
+const DEFAULT_WHEEL_ITEMS: Recipe[] = [
+  { id: "w1", title: "Cơm chiên trứng", emoji: "🍚", cost: 15000, time: 15, kcal: 400, protein: 14 },
+  { id: "w2", title: "Mì xào rau củ", emoji: "🍝", cost: 15000, time: 15, kcal: 350, protein: 12 },
+  { id: "w3", title: "Canh chua cá", emoji: "🍲", cost: 25000, time: 20, kcal: 280, protein: 18 },
+  { id: "w4", title: "Đậu sốt cà", emoji: "🥘", cost: 12000, time: 15, kcal: 220, protein: 15 },
+];
+
+const getDishEmoji = (title: string): string => {
+  if (title.includes("Cơm")) return "🍚";
+  if (title.includes("Bún")) return "🍜";
+  if (title.includes("Canh")) return "🍲";
+  if (title.includes("Mì")) return "🍝";
+  if (title.includes("Gà")) return "🍗";
+  if (title.includes("Trứng")) return "🍳";
+  return "🥘";
+};
+
 // Bản nhỏ trang trí trên trang chủ
-function WheelGraphic({ recipes = DEFAULT_RECIPES }: { recipes?: Recipe[] }) {
-  const items = recipes.length > 0 ? recipes.slice(0, 4) : DEFAULT_RECIPES;
+function WheelGraphic({ recipes = [] }: { recipes?: Recipe[] }) {
+  const items = recipes.length > 0 ? recipes.slice(0, 4) : DEFAULT_WHEEL_ITEMS;
   const seg = 360 / items.length;
   const wheelBg = `conic-gradient(${items
     .map((_, i) => `${WHEEL_COLORS[i % WHEEL_COLORS.length]} ${i * seg}deg ${(i + 1) * seg}deg`)
@@ -387,13 +373,13 @@ function WheelGraphic({ recipes = DEFAULT_RECIPES }: { recipes?: Recipe[] }) {
 function LuckyWheelModal({
   open,
   onClose,
-  recipes = DEFAULT_RECIPES,
+  recipes = [],
 }: {
   open: boolean;
   onClose: () => void;
   recipes?: Recipe[];
 }) {
-  const items = recipes.length > 0 ? recipes.slice(0, 6) : DEFAULT_RECIPES;
+  const items = recipes.length > 0 ? recipes.slice(0, 6) : DEFAULT_WHEEL_ITEMS;
   const seg = 360 / items.length;
   const wheelBg = `conic-gradient(${items
     .map((_, i) => `${WHEEL_COLORS[i % WHEEL_COLORS.length]} ${i * seg}deg ${(i + 1) * seg}deg`)
@@ -553,93 +539,68 @@ export default function HomePage() {
   const router = useRouter();
   const searchRef = useRef<HTMLInputElement>(null);
 
-  const [streak, setStreak] = useState(5);
-  const [weeklyCost, setWeeklyCost] = useState(98000);
+  const [streak, setStreak] = useState(0);
+  const [weeklyCost, setWeeklyCost] = useState(0);
   const [userName, setUserName] = useState("Vũ Quang Huy");
-  const [recipes, setRecipes] = useState<Recipe[]>(DEFAULT_RECIPES);
+  const [recipes, setRecipes] = useState<Recipe[]>([]);
+  const [loading, setLoading] = useState(true);
   const [eaten, setEaten] = useState(false);
   const [wheelOpen, setWheelOpen] = useState(false);
   const [favs, setFavs] = useState<Record<string, boolean>>({});
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Tải dữ liệu thật từ Backend API (thống kê chuỗi ngày, chi tiêu tuần, profile, công thức món)
-  useEffect(() => {
-    async function loadData() {
-      try {
-        const streakRes = await fetch("http://localhost:3000/api/v1/fun/streak");
-        if (streakRes.ok) {
-          const streakData = await streakRes.json();
-          if (streakData?.currentStreak !== undefined && streakData.currentStreak > 0) {
-            setStreak(streakData.currentStreak);
-          }
-        }
-      } catch (err) {
-        console.warn("Chưa kết nối streak:", err);
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const [streakRes, statsRes, profRes, recsRes, favIdsRes] = await Promise.allSettled([
+        fetchStreak(),
+        fetchMealStatistics(),
+        fetchUserProfile(),
+        fetchRecipes(),
+        fetchFavoriteIds(),
+      ]);
+
+      if (streakRes.status === "fulfilled" && streakRes.value?.currentStreak !== undefined) {
+        setStreak(streakRes.value.currentStreak);
       }
 
-      try {
-        const statsRes = await fetch("http://localhost:3000/api/v1/meals/statistics");
-        if (statsRes.ok) {
-          const stats = await statsRes.json();
-          if (stats?.totalCost !== undefined && stats.totalCost > 0) {
-            setWeeklyCost(stats.totalCost);
-          }
-        }
-      } catch (err) {
-        console.warn("Chưa kết nối statistics:", err);
+      if (statsRes.status === "fulfilled" && statsRes.value?.totalCost !== undefined) {
+        setWeeklyCost(statsRes.value.totalCost);
       }
 
-      try {
-        const profRes = await fetch("http://localhost:3000/api/v1/profile");
-        if (profRes.ok) {
-          const prof = await profRes.json();
-          if (prof?.data?.name) {
-            setUserName(prof.data.name);
-          }
-        }
-      } catch (err) {
-        console.warn("Chưa kết nối profile:", err);
+      if (profRes.status === "fulfilled" && profRes.value?.name) {
+        setUserName(profRes.value.name);
       }
 
-      try {
-        const recipesRes = await fetch("http://localhost:3000/api/v1/recipes");
-        if (recipesRes.ok) {
-          const list = await recipesRes.json();
-          if (Array.isArray(list) && list.length > 0) {
-            setRecipes(
-              list.map((r: any) => ({
-                id: r.id,
-                title: r.title,
-                emoji: r.title.includes("Cơm")
-                  ? "🍚"
-                  : r.title.includes("Bún")
-                  ? "🍜"
-                  : r.title.includes("Canh")
-                  ? "🍲"
-                  : r.title.includes("Mì")
-                  ? "🍝"
-                  : r.title.includes("Gà")
-                  ? "🍗"
-                  : r.title.includes("Trứng")
-                  ? "🍳"
-                  : "🥘",
-                img:
-                  r.imageUrl && !r.imageUrl.includes("placehold.co")
-                    ? r.imageUrl
-                    : "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=500&q=80",
-                cost: r.costEstimate || 15000,
-                time: r.cookMinutes || 15,
-                kcal: Math.round(r.kcal || 400),
-                protein: Math.round(r.protein || 15),
-              }))
-            );
-          }
-        }
-      } catch (err) {
-        console.warn("Chưa kết nối recipes:", err);
+      if (recsRes.status === "fulfilled" && Array.isArray(recsRes.value)) {
+        const mapped: Recipe[] = recsRes.value.map((r) => ({
+          id: r.id,
+          title: r.title,
+          emoji: getDishEmoji(r.title),
+          img: r.imageUrl && !r.imageUrl.includes("placehold.co") ? r.imageUrl : undefined,
+          cost: r.costEstimate || 15000,
+          time: r.cookMinutes || 15,
+          kcal: Math.round(r.kcal || 400),
+          protein: Math.round(r.protein || 15),
+        }));
+        setRecipes(mapped);
       }
+
+      if (favIdsRes.status === "fulfilled" && Array.isArray(favIdsRes.value)) {
+        const favMap: Record<string, boolean> = {};
+        favIdsRes.value.forEach((id) => {
+          favMap[id] = true;
+        });
+        setFavs(favMap);
+      }
+    } catch (err) {
+      console.warn("Lỗi tải trang chủ:", err);
+    } finally {
+      setLoading(false);
     }
+  };
 
+  useEffect(() => {
     loadData();
   }, []);
 
@@ -688,10 +649,10 @@ export default function HomePage() {
     const nextVal = !favs[id];
     setFavs((prev) => ({ ...prev, [id]: nextVal }));
     try {
-      await fetch(`http://localhost:3000/api/v1/recipes/${id}/favorite`, {
-        method: "POST",
-      });
-    } catch {}
+      await toggleFavoriteRecipe(id);
+    } catch {
+      setFavs((prev) => ({ ...prev, [id]: !nextVal }));
+    }
   };
 
   const handleMarkEaten = async () => {
@@ -701,31 +662,21 @@ export default function HomePage() {
     fireConfetti(70);
 
     try {
-      await fetch("http://localhost:3000/api/v1/meals", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          recipeId: "recipe-com-trung-ca-chua",
-          mealType: "lunch",
-          cost: 16000,
-          kcal: 420,
-        }),
+      const firstRecipe = recipes[0];
+      await logMeal({
+        recipeId: firstRecipe?.id,
+        recipeTitle: firstRecipe?.title || "Bữa trưa hôm nay",
+        mealType: "lunch",
+        cost: firstRecipe?.cost || 16000,
+        kcal: firstRecipe?.kcal || 420,
       });
 
-      // Cập nhật lại streak thật từ server
-      const streakRes = await fetch("http://localhost:3000/api/v1/fun/streak");
-      if (streakRes.ok) {
-        const streakData = await streakRes.json();
-        if (streakData?.currentStreak) {
-          setStreak(streakData.currentStreak);
-        }
+      const [streakRes, statsRes] = await Promise.allSettled([fetchStreak(), fetchMealStatistics()]);
+      if (streakRes.status === "fulfilled" && streakRes.value?.currentStreak) {
+        setStreak(streakRes.value.currentStreak);
       }
-      const statsRes = await fetch("http://localhost:3000/api/v1/meals/statistics");
-      if (statsRes.ok) {
-        const stats = await statsRes.json();
-        if (stats?.totalCost) {
-          setWeeklyCost(stats.totalCost);
-        }
+      if (statsRes.status === "fulfilled" && statsRes.value?.totalCost) {
+        setWeeklyCost(statsRes.value.totalCost);
       }
     } catch (err) {
       console.warn("Ghi nhận bữa ăn:", err);
@@ -953,74 +904,84 @@ export default function HomePage() {
               </div>
 
               <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-                {recipes.slice(0, 4).map((recipe) => (
-                  <article
-                    key={recipe.id}
-                    className="flex flex-col overflow-hidden rounded-2xl border border-[#EEE7DF] bg-[#FFFDF9] shadow-sm transition-shadow hover:shadow-md"
-                  >
-                    <div className="relative h-[120px] w-full shrink-0 overflow-hidden">
-                      <FoodImage
-                        src={recipe.img}
-                        alt={recipe.title}
-                        emoji={recipe.emoji}
-                        className="h-full w-full object-cover transition-transform duration-300 hover:scale-105"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => toggleFav(recipe.id)}
-                        aria-pressed={!!favs[recipe.id]}
-                        aria-label={
-                          favs[recipe.id]
-                            ? `Bỏ yêu thích ${recipe.title}`
-                            : `Yêu thích ${recipe.title}`
-                        }
-                        className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-white/90 shadow-sm backdrop-blur-sm transition-all hover:scale-110 active:scale-95"
-                      >
-                        <Heart
-                          className={`h-4 w-4 ${
-                            favs[recipe.id] ? "fill-red-500 text-red-500" : "text-stone-400"
-                          }`}
-                          aria-hidden="true"
+                {loading && recipes.length === 0 ? (
+                  [1, 2, 3, 4].map((n) => (
+                    <div key={n} className="h-64 animate-pulse rounded-2xl bg-[#F0E9DF]/60" />
+                  ))
+                ) : recipes.length === 0 ? (
+                  <div className="col-span-2 rounded-2xl border border-dashed border-[#DDD6CC] bg-[#FFFBF5] p-8 text-center text-xs text-[#77736D] xl:col-span-4">
+                    Chưa có món ăn nào trong hệ thống.
+                  </div>
+                ) : (
+                  recipes.slice(0, 4).map((recipe) => (
+                    <article
+                      key={recipe.id}
+                      className="flex flex-col overflow-hidden rounded-2xl border border-[#EEE7DF] bg-[#FFFDF9] shadow-sm transition-shadow hover:shadow-md"
+                    >
+                      <div className="relative h-[120px] w-full shrink-0 overflow-hidden">
+                        <FoodImage
+                          src={recipe.img}
+                          alt={recipe.title}
+                          emoji={recipe.emoji}
+                          className="h-full w-full object-cover transition-transform duration-300 hover:scale-105"
                         />
-                      </button>
-                    </div>
-
-                    <div className="flex flex-1 flex-col p-3">
-                      <h4 className="mb-1.5 truncate text-[13px] font-bold">{recipe.title}</h4>
-
-                      <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px]">
-                        <span className="flex items-center gap-1 font-bold text-[#C86218]">
-                          <Tag className="h-3 w-3" aria-hidden="true" />
-                          {vnd(recipe.cost)}
-                        </span>
-                        <span className="flex items-center gap-1 text-[#77736D]">
-                          <Clock className="h-3 w-3" aria-hidden="true" />
-                          {recipe.time} phút
-                        </span>
-                      </div>
-
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-[#77736D]">
-                        <span className="flex items-center gap-1 font-medium text-[#E86B1F]">
-                          <Flame className="h-3 w-3" aria-hidden="true" />
-                          {recipe.kcal} kcal
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <Beef className="h-3 w-3" aria-hidden="true" />
-                          {recipe.protein}g đạm
-                        </span>
-                      </div>
-
-                      <div className="mt-auto pt-3">
-                        <Link
-                          href={`/recipes/${recipe.id}`}
-                          className="flex w-full items-center justify-center gap-1 rounded-full bg-[#184B3A] py-2 text-xs font-bold text-white shadow-sm transition-colors hover:bg-[#12392c]"
+                        <button
+                          type="button"
+                          onClick={() => toggleFav(recipe.id)}
+                          aria-pressed={!!favs[recipe.id]}
+                          aria-label={
+                            favs[recipe.id]
+                              ? `Bỏ yêu thích ${recipe.title}`
+                              : `Yêu thích ${recipe.title}`
+                          }
+                          className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-white/90 shadow-sm backdrop-blur-sm transition-all hover:scale-110 active:scale-95"
                         >
-                          Xem công thức <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
-                        </Link>
+                          <Heart
+                            className={`h-4 w-4 ${
+                              favs[recipe.id] ? "fill-red-500 text-red-500" : "text-stone-400"
+                            }`}
+                            aria-hidden="true"
+                          />
+                        </button>
                       </div>
-                    </div>
-                  </article>
-                ))}
+
+                      <div className="flex flex-1 flex-col p-3">
+                        <h4 className="mb-1.5 truncate text-[13px] font-bold">{recipe.title}</h4>
+
+                        <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px]">
+                          <span className="flex items-center gap-1 font-bold text-[#C86218]">
+                            <Tag className="h-3 w-3" aria-hidden="true" />
+                            {vnd(recipe.cost)}
+                          </span>
+                          <span className="flex items-center gap-1 text-[#77736D]">
+                            <Clock className="h-3 w-3" aria-hidden="true" />
+                            {recipe.time} phút
+                          </span>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-[#77736D]">
+                          <span className="flex items-center gap-1 font-medium text-[#E86B1F]">
+                            <Flame className="h-3 w-3" aria-hidden="true" />
+                            {recipe.kcal} kcal
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <Beef className="h-3 w-3" aria-hidden="true" />
+                            {recipe.protein}g đạm
+                          </span>
+                        </div>
+
+                        <div className="mt-auto pt-3">
+                          <Link
+                            href={`/recipes/${recipe.id}`}
+                            className="flex w-full items-center justify-center gap-1 rounded-full bg-[#184B3A] py-2 text-xs font-bold text-white shadow-sm transition-colors hover:bg-[#12392c]"
+                          >
+                            Xem công thức <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+                          </Link>
+                        </div>
+                      </div>
+                    </article>
+                  ))
+                )}
               </div>
             </div>
           </section>

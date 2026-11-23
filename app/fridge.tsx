@@ -25,34 +25,53 @@ import {
   User,
   Utensils,
 } from "lucide-react";
+import { fetchFridgeItems, fetchFridgeSuggestions, FridgeItem, FridgeSuggestion } from "@/lib/services/fridgeService";
+import { fetchUserProfile } from "@/lib/services/profileService";
 
-/* ─── Mock data (TODO: thay bằng API qua Axios) ───────── */
-type Ingredient = { id: string; name: string; emoji: string; daysLeft: number };
-
-const INITIAL_INGREDIENTS: Ingredient[] = [
-  { id: "fridge-1", name: "Trứng gà", emoji: "🥚", daysLeft: 3 },
-  { id: "fridge-2", name: "Rau muống", emoji: "🥬", daysLeft: 2 },
-  { id: "fridge-3", name: "Cà chua", emoji: "🍅", daysLeft: 4 },
-  { id: "fridge-4", name: "Đậu hũ", emoji: "🧈", daysLeft: 2 },
-  { id: "fridge-5", name: "Mì gói", emoji: "🍜", daysLeft: 30 },
-  { id: "fridge-6", name: "Gạo", emoji: "🍚", daysLeft: 60 },
-  { id: "fridge-7", name: "Thịt heo xay", emoji: "🥩", daysLeft: 1 },
-];
-
-const SPACE_LEFT = 73; // % dung tích còn lại
-const WASTED_KG = 0;
-const EXPIRING_LIMIT = 3; // nguyên liệu còn <= 3 ngày coi là sắp hết
-
-const SUGGESTION = {
-  id: "r9",
-  title: "Gà xào rau củ",
-  desc: "Sử dụng ức gà và rau củ còn trong tủ lạnh của bạn",
-  emoji: "🍛",
-  img: "https://images.unsplash.com/photo-1512058564366-18510be2db19?auto=format&fit=crop&w=600&q=80",
+/* ─── Types & Category Visual Helpers ───────────────── */
+type DisplayIngredient = {
+  id: string;
+  name: string;
+  emoji: string;
+  daysLeft: number;
+  category: string;
+  quantity: number;
+  unit: string;
 };
 
-// Thay bằng ảnh tủ lạnh của bạn (Cloudinary). Ảnh lỗi/trống thì hiện emoji.
-const FRIDGE_IMG = "";
+const EXPIRING_LIMIT = 3;
+
+const getCategoryEmoji = (name: string, category: string): string => {
+  const lower = (name + " " + category).toLowerCase();
+  if (lower.includes("trứng")) return "🥚";
+  if (lower.includes("rau") || lower.includes("cải") || lower.includes("muống")) return "🥬";
+  if (lower.includes("cà chua")) return "🍅";
+  if (lower.includes("đậu") || lower.includes("hũ")) return "🧈";
+  if (lower.includes("mì")) return "🍜";
+  if (lower.includes("gạo") || lower.includes("cơm")) return "🍚";
+  if (lower.includes("thịt") || lower.includes("heo") || lower.includes("bò")) return "🥩";
+  if (lower.includes("gà")) return "🍗";
+  if (lower.includes("cá") || lower.includes("tôm") || lower.includes("hải sản")) return "🐟";
+  if (lower.includes("quả") || lower.includes("táo") || lower.includes("chuối")) return "🍎";
+  if (category.toLowerCase().includes("đạm")) return "🥩";
+  if (category.toLowerCase().includes("tinh bột")) return "🍚";
+  return "🥗";
+};
+
+const calculateDaysLeft = (addedAt: string, category: string): number => {
+  const addedDate = new Date(addedAt);
+  const diffDays = Math.floor((Date.now() - addedDate.getTime()) / (1000 * 3600 * 24));
+  let shelfLife = 7;
+  const cat = category.toLowerCase();
+  if (cat.includes("đạm") || cat.includes("thịt") || cat.includes("hải sản")) {
+    shelfLife = 3;
+  } else if (cat.includes("rau")) {
+    shelfLife = 4;
+  } else if (cat.includes("tinh bột") || cat.includes("gia vị")) {
+    shelfLife = 30;
+  }
+  return Math.max(1, shelfLife - diffDays);
+};
 
 const TIP = {
   title: "Mẹo nhỏ từ BếpSV",
@@ -186,43 +205,60 @@ export default function FridgePage() {
   const searchRef = useRef<HTMLInputElement>(null);
 
   const [searchQuery, setSearchQuery] = useState("");
-  const [updatedAt, setUpdatedAt] = useState(""); // set sau khi mount để tránh lệch hydration
+  const [updatedAt, setUpdatedAt] = useState("");
   const [refreshing, setRefreshing] = useState(false);
-  const [ingredients, setIngredients] = useState<Ingredient[]>(INITIAL_INGREDIENTS);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [ingredients, setIngredients] = useState<DisplayIngredient[]>([]);
+  const [suggestions, setSuggestions] = useState<FridgeSuggestion[]>([]);
   const [userName, setUserName] = useState("Vũ Quang Huy");
 
-  useEffect(() => setUpdatedAt(formatNow()), []);
+  const loadData = async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    else setLoading(true);
+    setError(null);
 
-  useEffect(() => {
-    async function loadFridge() {
-      try {
-        const res = await fetch("http://localhost:3000/api/v1/fridge");
-        if (res.ok) {
-          const data = await res.json();
-          if (Array.isArray(data) && data.length > 0) {
-            setIngredients(
-              data.map((item: any) => ({
-                id: item.id,
-                name: item.name,
-                emoji: item.emoji || "🥗",
-                daysLeft: item.daysLeft || 3,
-              }))
-            );
-          }
-        }
-      } catch (err) {
-        console.warn("Chưa tải được tủ lạnh:", err);
+    try {
+      const [itemsRes, suggsRes, profRes] = await Promise.allSettled([
+        fetchFridgeItems(),
+        fetchFridgeSuggestions(),
+        fetchUserProfile(),
+      ]);
+
+      if (itemsRes.status === "fulfilled") {
+        const mapped: DisplayIngredient[] = itemsRes.value.map((item) => ({
+          id: item.id,
+          name: item.name,
+          category: item.category,
+          quantity: item.quantity,
+          unit: item.unit,
+          emoji: getCategoryEmoji(item.name, item.category),
+          daysLeft: calculateDaysLeft(item.addedAt, item.category),
+        }));
+        setIngredients(mapped);
+      } else {
+        setError(itemsRes.reason?.message || "Không thể tải nguyên liệu tủ lạnh");
       }
 
-      try {
-        const profRes = await fetch("http://localhost:3000/api/v1/profile");
-        if (profRes.ok) {
-          const prof = await profRes.json();
-          if (prof?.data?.name) setUserName(prof.data.name);
-        }
-      } catch {}
+      if (suggsRes.status === "fulfilled") {
+        setSuggestions(suggsRes.value);
+      }
+
+      if (profRes.status === "fulfilled" && profRes.value?.name) {
+        setUserName(profRes.value.name);
+      }
+
+      setUpdatedAt(formatNow());
+    } catch (err: any) {
+      setError(err?.message || "Đã xảy ra lỗi khi tải dữ liệu");
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
-    loadFridge();
+  };
+
+  useEffect(() => {
+    loadData();
   }, []);
 
   // Ctrl/Cmd + K để focus ô tìm kiếm
@@ -244,22 +280,20 @@ export default function FridgePage() {
   };
 
   const handleRefresh = () => {
-    if (refreshing) return;
-    // TODO: gọi lại API lấy trạng thái tủ lạnh
-    setRefreshing(true);
-    setTimeout(() => {
-      setUpdatedAt(formatNow());
-      setRefreshing(false);
-    }, 600);
+    if (refreshing || loading) return;
+    loadData(true);
   };
 
   const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
 
-  const expiring = ingredients.filter((i) => i.daysLeft <= EXPIRING_LIMIT)
+  const expiring = ingredients
+    .filter((i) => i.daysLeft <= EXPIRING_LIMIT)
     .sort((a, b) => a.daysLeft - b.daysLeft)
     .slice(0, 3);
-  const soonestDays = ingredients.length > 0 ? Math.min(...ingredients.map((i) => i.daysLeft)) : 3;
-  const soonest = ingredients.find((i) => i.daysLeft === soonestDays);
+  const soonestDays = ingredients.length > 0 ? Math.min(...ingredients.map((i) => i.daysLeft)) : null;
+  const soonest = soonestDays !== null ? ingredients.find((i) => i.daysLeft === soonestDays) : null;
+  const spacePercent = Math.max(0, Math.min(100, Math.round(100 - (ingredients.length / 20) * 100)));
+  const topSuggestion = suggestions.length > 0 ? suggestions[0] : null;
 
   return (
     <div className="flex min-h-screen bg-[#F7F1EC] font-sans text-[#202B24]">
@@ -403,7 +437,7 @@ export default function FridgePage() {
 
               <div className="absolute right-0 top-0 hidden h-full w-[52%] sm:block">
                 <FoodImage
-                  src={FRIDGE_IMG}
+                  src={undefined}
                   alt="Tủ lạnh đầy rau củ và thực phẩm"
                   emoji="🧊"
                   className="h-full w-full object-cover object-center"
@@ -447,7 +481,7 @@ export default function FridgePage() {
 
               <div className="flex flex-col gap-5 md:flex-row">
                 <div className="flex shrink-0 items-center justify-center md:w-[190px] md:border-r md:border-[#EEE7DF] md:pr-5">
-                  <SpaceRing percent={SPACE_LEFT} />
+                  <SpaceRing percent={spacePercent} />
                 </div>
 
                 <div className="min-w-0 flex-1">
@@ -456,7 +490,23 @@ export default function FridgePage() {
                     Nguyên liệu sắp hết
                   </h4>
 
-                  {expiring.length === 0 ? (
+                  {error ? (
+                    <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-center">
+                      <p className="text-xs font-semibold text-red-700">{error}</p>
+                      <button
+                        onClick={() => loadData(false)}
+                        className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-red-600 px-3 py-1 text-xs font-bold text-white hover:bg-red-700"
+                      >
+                        <RefreshCw className="h-3 w-3" /> Thử lại
+                      </button>
+                    </div>
+                  ) : loading && ingredients.length === 0 ? (
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                      {[1, 2, 3].map((n) => (
+                        <div key={n} className="h-28 animate-pulse rounded-2xl bg-[#F0E9DF]/60" />
+                      ))}
+                    </div>
+                  ) : expiring.length === 0 ? (
                     <p className="rounded-2xl bg-[#FAF5EE] p-4 text-center text-xs text-[#77736D]">
                       Chưa có nguyên liệu nào sắp hết hạn. Tuyệt vời!
                     </p>
@@ -514,25 +564,37 @@ export default function FridgePage() {
                 </Link>
               </div>
 
-              <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
-                {ingredients.map((i) => {
-                  const u = urgency(i.daysLeft);
-                  return (
-                    <li
-                      key={i.id}
-                      className="flex flex-col items-center rounded-2xl border border-[#F0E9DF] bg-[#FFFCF7] px-2 py-3 text-center shadow-sm"
-                    >
-                      <span className="text-5xl" aria-hidden="true">
-                        {i.emoji}
-                      </span>
-                      <span className="mt-1.5 text-[13px] font-semibold">{i.name}</span>
-                      <span className={`mt-1.5 rounded-full px-3 py-0.5 text-xs font-semibold ${u.chip} ${u.text}`}>
-                        (~ {i.daysLeft} ngày)
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
+              {loading && ingredients.length === 0 ? (
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
+                  {[1, 2, 3, 4, 5].map((n) => (
+                    <div key={n} className="h-28 animate-pulse rounded-2xl bg-[#F0E9DF]/60" />
+                  ))}
+                </div>
+              ) : ingredients.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-[#DDD6CC] bg-[#FFFBF5] p-6 text-center text-xs text-[#77736D]">
+                  Tủ lạnh của bạn hiện đang trống. Thêm nguyên liệu để nhận gợi ý nấu ăn!
+                </div>
+              ) : (
+                <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
+                  {ingredients.map((i) => {
+                    const u = urgency(i.daysLeft);
+                    return (
+                      <li
+                        key={i.id}
+                        className="flex flex-col items-center rounded-2xl border border-[#F0E9DF] bg-[#FFFCF7] px-2 py-3 text-center shadow-sm"
+                      >
+                        <span className="text-5xl" aria-hidden="true">
+                          {i.emoji}
+                        </span>
+                        <span className="mt-1.5 text-[13px] font-semibold">{i.name}</span>
+                        <span className={`mt-1.5 rounded-full px-3 py-0.5 text-xs font-semibold ${u.chip} ${u.text}`}>
+                          (~ {i.daysLeft} ngày)
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
             </div>
           </section>
 
@@ -566,7 +628,7 @@ export default function FridgePage() {
                 />
                 <StatTile
                   icon={<CalendarDays className="h-8 w-8 text-orange-400" aria-hidden="true" />}
-                  value={`${EXPIRING_LIMIT} ngày`}
+                  value={soonest ? `${soonest.daysLeft} ngày` : "--"}
                   label={
                     <>
                       Thời gian còn lại
@@ -577,7 +639,7 @@ export default function FridgePage() {
                 />
                 <StatTile
                   icon={<Leaf className="h-8 w-8 fill-emerald-500 text-emerald-600" aria-hidden="true" />}
-                  value={`${WASTED_KG} kg`}
+                  value="0 kg"
                   label={
                     <>
                       Thực phẩm
@@ -595,24 +657,37 @@ export default function FridgePage() {
                 <Lightbulb className="h-5 w-5 fill-amber-300 text-amber-500" aria-hidden="true" />
                 Gợi ý hôm nay
               </h3>
-              <div className="flex overflow-hidden rounded-2xl bg-[#FFF8ED]">
-                <FoodImage
-                  src={SUGGESTION.img}
-                  alt={SUGGESTION.title}
-                  emoji={SUGGESTION.emoji}
-                  className="h-auto w-[42%] shrink-0 object-cover"
-                />
-                <div className="flex min-w-0 flex-1 flex-col justify-center p-3.5">
-                  <p className="text-base font-black">{SUGGESTION.title}</p>
-                  <p className="mt-1 text-xs leading-snug text-[#77736D]">{SUGGESTION.desc}</p>
-                  <Link
-                    href={`/recipes/${SUGGESTION.id}`}
-                    className="mt-3 inline-flex w-fit items-center gap-1.5 rounded-full bg-[#184B3A] px-4 py-2 text-xs font-bold text-white shadow-sm transition-colors hover:bg-[#12392c]"
-                  >
-                    Xem công thức <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
-                  </Link>
+              {loading && !topSuggestion ? (
+                <div className="h-36 animate-pulse rounded-2xl bg-[#F0E9DF]/60" />
+              ) : topSuggestion ? (
+                <div className="flex overflow-hidden rounded-2xl bg-[#FFF8ED]">
+                  <FoodImage
+                    src={topSuggestion.recipe.imageUrl || undefined}
+                    alt={topSuggestion.recipe.title}
+                    emoji="🍲"
+                    className="h-auto w-[42%] shrink-0 object-cover"
+                  />
+                  <div className="flex min-w-0 flex-1 flex-col justify-center p-3.5">
+                    <p className="text-base font-black">{topSuggestion.recipe.title}</p>
+                    <p className="mt-1 text-xs leading-snug text-[#77736D]">
+                      Có sẵn {topSuggestion.matchedIngredients.length} nguyên liệu
+                      {topSuggestion.missingIngredients.length > 0
+                        ? `, thiếu ${topSuggestion.missingIngredients.length} nguyên liệu`
+                        : " (đủ nguyên liệu)"}
+                    </p>
+                    <Link
+                      href={`/recipes/${topSuggestion.recipe.id}`}
+                      className="mt-3 inline-flex w-fit items-center gap-1.5 rounded-full bg-[#184B3A] px-4 py-2 text-xs font-bold text-white shadow-sm transition-colors hover:bg-[#12392c]"
+                    >
+                      Xem công thức <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+                    </Link>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="rounded-2xl bg-[#FAF5EE] p-4 text-center text-xs text-[#77736D]">
+                  Chưa có gợi ý phù hợp với nguyên liệu hiện tại trong tủ.
+                </div>
+              )}
             </div>
 
             {/* Mẹo nhỏ */}

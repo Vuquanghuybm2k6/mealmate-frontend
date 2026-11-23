@@ -21,8 +21,15 @@ import {
   Utensils,
   CheckCircle2,
   PlusCircle,
+  RefreshCw,
+  Zap,
 } from "lucide-react";
 import confetti from "canvas-confetti";
+import { fetchFavoriteIds, toggleFavoriteRecipe } from "@/lib/services/recipeService";
+import { logMeal } from "@/lib/services/mealsService";
+import { addShoppingItem } from "@/lib/services/shoppingService";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000/api/v1";
 
 interface RecipeDetail {
   id: string;
@@ -47,80 +54,68 @@ interface RecipeDetail {
   }[];
 }
 
-const ID_MAP: Record<string, string> = {
-  r1: "recipe-com-trung-ca-chua",
-  r2: "recipe-com-dau-hu-sot-ca",
-  r3: "recipe-mi-xao-trung",
-  r4: "recipe-canh-rau-muong-dau-hu",
-};
-
-const DEFAULT_STEPS = [
-  "Sơ chế các nguyên liệu sạch sẽ, để ráo nước.",
-  "Bắc chảo hoặc nồi lên bếp, làm nóng một chút dầu ăn.",
-  "Cho nguyên liệu chính vào xào hoặc nấu lửa vừa trong khoảng 10-15 phút.",
-  "Nêm nếm gia vị nước mắm, muối, hạt tiêu vừa ăn rồi tắt bếp và thưởng thức khi còn nóng.",
-];
-
 export default function RecipeDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const rawId = (params?.id as string) || "recipe-com-trung-ca-chua";
-  const mappedId = ID_MAP[rawId] || rawId;
+  const id = (params?.id as string) || "";
 
   const [recipe, setRecipe] = useState<RecipeDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [fav, setFav] = useState(false);
   const [cooked, setCooked] = useState(false);
   const [addedShopping, setAddedShopping] = useState(false);
 
-  useEffect(() => {
-    async function fetchRecipe() {
-      setLoading(true);
-      try {
-        const res = await fetch(`http://localhost:3000/api/v1/recipes/${mappedId}`);
-        if (res.ok) {
-          const data = await res.json();
-          setRecipe(data);
-        } else {
-          // Fallback to first recipe from list
-          const listRes = await fetch("http://localhost:3000/api/v1/recipes");
-          if (listRes.ok) {
-            const list = await listRes.json();
-            const found = list.find((r: any) => r.id === mappedId) || list[0];
-            setRecipe({
-              ...found,
-              steps: DEFAULT_STEPS,
-              ingredients: [
-                { id: "i1", name: "Trứng gà", quantity: 2, unit: "quả" },
-                { id: "i2", name: "Cà chua", quantity: 2, unit: "quả" },
-                { id: "i3", name: "Hành lá", quantity: 1, unit: "nhánh" },
-                { id: "i4", name: "Gia vị (mắm, muối, dầu ăn)", quantity: 1, unit: "phần" },
-              ],
-            });
-          }
-        }
-      } catch (err) {
-        console.error("Lỗi tải chi tiết món:", err);
-      } finally {
-        setLoading(false);
-      }
-    }
+  const fetchRecipe = async () => {
+    if (!id) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const [recRes, favIds] = await Promise.all([
+        fetch(`${API_BASE}/recipes/${encodeURIComponent(id)}`),
+        fetchFavoriteIds().catch((): string[] => []),
+      ]);
 
+      if (!recRes.ok) {
+        throw new Error(`Không tìm thấy công thức món ăn (${recRes.status})`);
+      }
+
+      const data = await recRes.json();
+      setRecipe(data);
+      if (Array.isArray(favIds) && favIds.includes(data.id)) {
+        setFav(true);
+      }
+    } catch (err: any) {
+      setError(err?.message || "Đã xảy ra lỗi khi tải công thức");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
     fetchRecipe();
-  }, [mappedId]);
+  }, [id]);
+
+  const handleToggleFavorite = async () => {
+    if (!recipe) return;
+    const nextFav = !fav;
+    setFav(nextFav);
+    try {
+      await toggleFavoriteRecipe(recipe.id);
+    } catch {
+      setFav(!nextFav);
+    }
+  };
 
   const handleMarkCooked = async () => {
     if (cooked || !recipe) return;
     try {
-      await fetch("http://localhost:3000/api/v1/meals", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          recipeId: recipe.id,
-          mealType: "lunch",
-          cost: Math.round(recipe.costEstimate || 15000),
-          kcal: Math.round(recipe.kcal || 350),
-        }),
+      await logMeal({
+        recipeId: recipe.id,
+        recipeTitle: recipe.title,
+        mealType: "lunch",
+        cost: Math.round(recipe.costEstimate || 0),
+        kcal: Math.round(recipe.kcal || 0),
       });
       setCooked(true);
       try {
@@ -134,15 +129,11 @@ export default function RecipeDetailPage() {
   const handleAddToShopping = async () => {
     if (addedShopping || !recipe) return;
     try {
-      for (const ing of (recipe.ingredients || []).slice(0, 3)) {
-        await fetch("http://localhost:3000/api/v1/shopping/items", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: ing.name,
-            quantity: `${ing.quantity} ${ing.unit}`,
-            category: "Rau củ",
-          }),
+      for (const ing of (recipe.ingredients || []).slice(0, 5)) {
+        await addShoppingItem({
+          name: ing.name,
+          qty: `${ing.quantity} ${ing.unit}`,
+          group: ing.category || "Nguyên liệu",
         });
       }
       setAddedShopping(true);
@@ -164,13 +155,23 @@ export default function RecipeDetailPage() {
     );
   }
 
-  if (!recipe) {
+  if (error || !recipe) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-[#F7F1EC] p-4 text-center">
-        <h2 className="text-xl font-bold">Không tìm thấy món ăn này!</h2>
-        <Link href="/recipes" className="mt-4 rounded-full bg-[#184B3A] px-5 py-2 text-sm text-white">
-          Quay lại kho công thức
-        </Link>
+        <h2 className="text-xl font-bold text-[#184B3A]">
+          {error || "Không tìm thấy món ăn này!"}
+        </h2>
+        <div className="mt-4 flex gap-3">
+          <button
+            onClick={fetchRecipe}
+            className="flex items-center gap-1.5 rounded-full border border-[#184B3A] bg-white px-5 py-2 text-sm font-bold text-[#184B3A]"
+          >
+            <RefreshCw className="h-4 w-4" /> Thử lại
+          </button>
+          <Link href="/recipes" className="rounded-full bg-[#184B3A] px-5 py-2 text-sm font-bold text-white">
+            Quay lại kho công thức
+          </Link>
+        </div>
       </div>
     );
   }
@@ -243,7 +244,7 @@ export default function RecipeDetailPage() {
 
           <button
             type="button"
-            onClick={() => setFav(!fav)}
+            onClick={handleToggleFavorite}
             className={`flex items-center gap-1.5 rounded-full border border-[#EEE7DF] px-3.5 py-1.5 text-xs font-bold transition-all ${
               fav ? "bg-red-50 text-red-600 border-red-200" : "bg-white text-[#77736D] hover:bg-stone-50"
             }`}
@@ -368,16 +369,20 @@ export default function RecipeDetailPage() {
                   Các bước thực hiện
                 </h2>
                 <div className="space-y-4">
-                  {(recipe.steps || DEFAULT_STEPS).map((step, idx) => (
-                    <div key={idx} className="flex gap-3">
-                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#DDEBDD] text-xs font-black text-[#184B3A]">
-                        {idx + 1}
-                      </span>
-                      <p className="pt-0.5 text-xs font-medium leading-relaxed text-[#403e3a]">
-                        {step}
-                      </p>
-                    </div>
-                  ))}
+                  {(recipe.steps || []).length === 0 ? (
+                    <p className="text-xs text-[#77736D]">Chưa có các bước nấu cụ thể cho món này.</p>
+                  ) : (
+                    (recipe.steps || []).map((step, idx) => (
+                      <div key={idx} className="flex gap-3">
+                        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#DDEBDD] text-xs font-black text-[#184B3A]">
+                          {idx + 1}
+                        </span>
+                        <p className="pt-0.5 text-xs font-medium leading-relaxed text-[#403e3a]">
+                          {step}
+                        </p>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             </div>

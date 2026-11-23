@@ -17,6 +17,7 @@ import {
   Lightbulb,
   Moon,
   Plus,
+  RefreshCw,
   Refrigerator,
   Search,
   ShoppingCart,
@@ -26,6 +27,16 @@ import {
   Utensils,
   X,
 } from "lucide-react";
+import {
+  fetchMealPlanDishes,
+  fetchMealPlan,
+  saveMealPlan,
+  autoGenerateMealPlan,
+  copyMealPlan,
+  Dish,
+  MealType,
+} from "@/lib/services/mealPlanService";
+import { fetchUserProfile } from "@/lib/services/profileService";
 
 /* ─── Helpers ─────────────────────────────────────────── */
 const vnd = (n: number) => new Intl.NumberFormat("vi-VN").format(n) + "đ";
@@ -55,49 +66,11 @@ const weeksBetween = (from: string, to: string) => {
   return Math.round(ms / (7 * 86400000));
 };
 
-/* ─── Mock data (TODO: thay bằng API qua Axios) ───────── */
-type MealType = "breakfast" | "lunch" | "dinner";
-type Dish = { id: string; name: string; emoji: string; cost: number; meals: MealType[] };
 type Plan = Record<string, string>; // key: `${dayIndex}-${mealType}` → dishId
 
-// TODO: thay bằng ngày hiện tại thật (đang cố định để tránh lệch hydration)
-const CURRENT_WEEK = "2026-11-16"; // Thứ Hai
+// Tuần hiện tại
+const CURRENT_WEEK = "2026-11-16";
 const DEFAULT_LIMIT = 500000;
-
-const DISHES: Dish[] = [
-  // Bữa sáng
-  { id: "b1", name: "Bánh mì trứng", emoji: "🥪", cost: 15000, meals: ["breakfast"] },
-  { id: "b2", name: "Khoai lang luộc", emoji: "🍠", cost: 12000, meals: ["breakfast"] },
-  { id: "b3", name: "Bánh cuốn", emoji: "🥟", cost: 20000, meals: ["breakfast"] },
-  { id: "b4", name: "Phở bò", emoji: "🍜", cost: 30000, meals: ["breakfast"] },
-  { id: "b5", name: "Xôi mặn", emoji: "🍙", cost: 18000, meals: ["breakfast"] },
-  { id: "b6", name: "Mì tôm trứng", emoji: "🍜", cost: 15000, meals: ["breakfast"] },
-  { id: "b7", name: "Bánh mì thịt", emoji: "🥖", cost: 20000, meals: ["breakfast"] },
-  // Bữa trưa
-  { id: "l1", name: "Cơm trắng + Thịt rang", emoji: "🍚", cost: 25000, meals: ["lunch"] },
-  { id: "l2", name: "Cơm gà xào rau", emoji: "🍗", cost: 25000, meals: ["lunch"] },
-  { id: "l3", name: "Mì xào rau củ", emoji: "🍝", cost: 20000, meals: ["lunch"] },
-  { id: "l4", name: "Cơm thịt kho trứng", emoji: "🥘", cost: 28000, meals: ["lunch"] },
-  { id: "l5", name: "Bún thịt nướng", emoji: "🍖", cost: 30000, meals: ["lunch"] },
-  { id: "l6", name: "Cơm cá kho", emoji: "🐟", cost: 25000, meals: ["lunch"] },
-  { id: "l7", name: "Cơm rau củ xào", emoji: "🥗", cost: 15000, meals: ["lunch"] },
-  // Bữa tối
-  { id: "d1", name: "Canh rau muống", emoji: "🥬", cost: 12000, meals: ["dinner"] },
-  { id: "d2", name: "Súp bí đỏ", emoji: "🎃", cost: 15000, meals: ["dinner"] },
-  { id: "d3", name: "Đậu hủ non sốt nấm", emoji: "🍄", cost: 20000, meals: ["dinner"] },
-  { id: "d4", name: "Canh cải", emoji: "🥣", cost: 10000, meals: ["dinner"] },
-  { id: "d5", name: "Đậu phụ sốt cà", emoji: "🍅", cost: 15000, meals: ["dinner"] },
-  { id: "d6", name: "Canh chua cá", emoji: "🍲", cost: 28000, meals: ["dinner"] },
-  { id: "d7", name: "Trứng hấp thịt", emoji: "🥚", cost: 22000, meals: ["dinner"] },
-  // Món dùng được nhiều bữa (cũng là gợi ý nhanh)
-  { id: "q1", name: "Cơm rang trứng", emoji: "🍳", cost: 15000, meals: ["lunch", "dinner"] },
-  { id: "q2", name: "Thịt kho tàu", emoji: "🍖", cost: 35000, meals: ["lunch", "dinner"] },
-  { id: "q3", name: "Canh mướp", emoji: "🥒", cost: 12000, meals: ["lunch", "dinner"] },
-  { id: "q4", name: "Trứng chiên hành", emoji: "🍳", cost: 10000, meals: ["breakfast", "lunch", "dinner"] },
-  { id: "q5", name: "Rau muống xào tỏi", emoji: "🥬", cost: 12000, meals: ["lunch", "dinner"] },
-];
-const DISH_BY_ID = Object.fromEntries(DISHES.map((d) => [d.id, d]));
-const SUGGESTION_IDS = ["q1", "q2", "q3", "q4", "q5"];
 
 const MEALS: { id: MealType; label: string }[] = [
   { id: "breakfast", label: "Bữa sáng" },
@@ -105,19 +78,6 @@ const MEALS: { id: MealType; label: string }[] = [
   { id: "dinner", label: "Bữa tối" },
 ];
 const WEEKDAYS = ["Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy", "Chủ Nhật"];
-
-// Thực đơn tuần hiện tại: 7 ngày × 3 bữa, tổng 420.000đ
-const DEFAULT_PLAN: Plan = {};
-MEALS.forEach((meal, mi) => {
-  const prefix = ["b", "l", "d"][mi];
-  for (let day = 0; day < 7; day++) DEFAULT_PLAN[`${day}-${meal.id}`] = `${prefix}${day + 1}`;
-});
-// Thực đơn tuần trước (mock): xoay lệch 2 ngày để khác tuần này
-const PREV_PLAN: Plan = {};
-Object.entries(DEFAULT_PLAN).forEach(([key, id]) => {
-  const [day, meal] = key.split("-");
-  PREV_PLAN[`${(Number(day) + 2) % 7}-${meal}`] = id;
-});
 
 const NAV_ITEMS = [
   { href: "/", label: "Trang chủ", Icon: Home },
@@ -162,14 +122,11 @@ export default function MealPlanPage() {
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suggestRef = useRef<HTMLUListElement>(null);
 
-  const [dishes, setDishes] = useState<Dish[]>(DISHES);
+  const [dishes, setDishes] = useState<Dish[]>([]);
   const [userProfile, setUserProfile] = useState<{ name: string; avatarUrl?: string } | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [weekStart, setWeekStart] = useState(CURRENT_WEEK);
-  const [plans, setPlans] = useState<Record<string, Plan>>({
-    [CURRENT_WEEK]: DEFAULT_PLAN,
-    [addDays(CURRENT_WEEK, -7)]: PREV_PLAN,
-  });
+  const [plans, setPlans] = useState<Record<string, Plan>>({});
   const [limit, setLimit] = useState(DEFAULT_LIMIT);
   const [editingLimit, setEditingLimit] = useState(false);
   const [limitDraft, setLimitDraft] = useState("");
@@ -177,6 +134,8 @@ export default function MealPlanPage() {
   const [pickerQuery, setPickerQuery] = useState("");
   const [hiddenSuggestions, setHiddenSuggestions] = useState<string[]>([]);
   const [toast, setToast] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const dishById = useMemo(() => {
     const map: Record<string, Dish> = {};
@@ -196,26 +155,21 @@ export default function MealPlanPage() {
   // Tải thông tin người dùng và danh sách món từ backend
   useEffect(() => {
     const fetchInitialData = async () => {
+      setLoading(true);
+      setError(null);
       try {
-        const [profRes, dishesRes] = await Promise.all([
-          fetch("http://localhost:3000/api/v1/profile"),
-          fetch("http://localhost:3000/api/v1/meal-plans/dishes"),
+        const [prof, dishesList] = await Promise.all([
+          fetchUserProfile().catch(() => null),
+          fetchMealPlanDishes(),
         ]);
-        if (profRes.ok) {
-          const profData = await profRes.json();
-          const user = profData.data || profData;
-          if (user?.name) {
-            setUserProfile({ name: user.name, avatarUrl: user.avatarUrl });
-          }
+        if (prof?.name) {
+          setUserProfile({ name: prof.name });
         }
-        if (dishesRes.ok) {
-          const dishesData = await dishesRes.json();
-          if (Array.isArray(dishesData) && dishesData.length > 0) {
-            setDishes(dishesData);
-          }
-        }
-      } catch {
-        // Fallback to local data
+        setDishes(dishesList);
+      } catch (err: any) {
+        setError(err?.message || "Không thể tải dữ liệu lên thực đơn");
+      } finally {
+        setLoading(false);
       }
     };
     fetchInitialData();
@@ -225,18 +179,15 @@ export default function MealPlanPage() {
   useEffect(() => {
     const fetchWeekPlan = async () => {
       try {
-        const res = await fetch(`http://localhost:3000/api/v1/meal-plans?weekStart=${weekStart}`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data?.plan && Object.keys(data.plan).length > 0) {
-            setPlans((prev) => ({ ...prev, [weekStart]: data.plan }));
-          }
-          if (data?.budget) {
-            setLimit(data.budget);
-          }
+        const data = await fetchMealPlan(weekStart);
+        if (data?.plan) {
+          setPlans((prev) => ({ ...prev, [weekStart]: data.plan }));
+        }
+        if (data?.budget) {
+          setLimit(data.budget);
         }
       } catch {
-        // Sử dụng plan sẵn có trong state
+        // Tuần mới chưa có thực đơn
       }
     };
     fetchWeekPlan();
@@ -277,13 +228,9 @@ export default function MealPlanPage() {
     setWeekPlan(next);
     setPicker(null);
     try {
-      await fetch(`http://localhost:3000/api/v1/meal-plans/${weekStart}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ weekStart, budget: limit, plan: next }),
-      });
-    } catch {
-      // Offline fallback
+      await saveMealPlan(weekStart, limit, next);
+    } catch (err: any) {
+      showToast(err?.message || "Không thể lưu món ăn");
     }
   };
 
@@ -292,13 +239,9 @@ export default function MealPlanPage() {
     delete next[`${day}-${meal}`];
     setWeekPlan(next);
     try {
-      await fetch(`http://localhost:3000/api/v1/meal-plans/${weekStart}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ weekStart, budget: limit, plan: next }),
-      });
-    } catch {
-      // Offline fallback
+      await saveMealPlan(weekStart, limit, next);
+    } catch (err: any) {
+      showToast(err?.message || "Không thể xóa món ăn");
     }
   };
 
@@ -318,84 +261,28 @@ export default function MealPlanPage() {
 
   /* Lên thực đơn tự động cho các ô còn trống, trong hạn mức */
   const autoPlan = async () => {
-    const empty: { day: number; meal: MealType }[] = [];
-    for (let day = 0; day < 7; day++) MEALS.forEach((m) => !plan[`${day}-${m.id}`] && empty.push({ day, meal: m.id }));
-    if (empty.length === 0) return showToast("Tuần này đã đủ món rồi!");
-
-    // Thử gọi API backend thông minh
     try {
-      const res = await fetch("http://localhost:3000/api/v1/meal-plans/auto-generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ weekStart, budget: limit, existingPlan: plan }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data?.plan) {
-          setWeekPlan(data.plan);
-          showToast("Đã lên thực đơn tự động phù hợp với ngân sách của bạn!");
-          return;
-        }
+      const data = await autoGenerateMealPlan(weekStart, limit, plan);
+      if (data?.plan) {
+        setWeekPlan(data.plan);
+        showToast("Đã lên thực đơn tự động phù hợp với ngân sách của bạn!");
       }
-    } catch {
-      // Fallback thuật toán client
+    } catch (err: any) {
+      showToast(err?.message || "Không thể tự động lên thực đơn");
     }
-
-    const next = { ...plan };
-    const used = new Set(Object.values(next));
-    let budgetLeft = remaining;
-    const minCost = (meal: MealType) => Math.min(...dishes.filter((d) => d.meals.includes(meal)).map((d) => d.cost));
-    let filled = 0;
-
-    empty.forEach((slot, i) => {
-      const reserve = empty.slice(i + 1).reduce((s, x) => s + minCost(x.meal), 0);
-      const all = dishes.filter((d) => d.meals.includes(slot.meal) && d.cost <= budgetLeft - reserve);
-      if (all.length === 0) return;
-      const fresh = all.filter((d) => !used.has(d.id));
-      const pool = fresh.length ? fresh : all;
-      const pick = pool[Math.floor(Math.random() * pool.length)];
-      next[`${slot.day}-${slot.meal}`] = pick.id;
-      used.add(pick.id);
-      budgetLeft -= pick.cost;
-      filled++;
-    });
-
-    setWeekPlan(next);
-    showToast(
-      filled === empty.length
-        ? `Đã lên thực đơn cho ${filled} bữa còn trống.`
-        : `Chỉ điền được ${filled}/${empty.length} bữa vì hạn mức tuần không đủ.`
-    );
   };
 
   const copyPrevWeek = async () => {
     const prevWeekDate = addDays(weekStart, -7);
-
-    // Thử gọi API backend
     try {
-      const res = await fetch("http://localhost:3000/api/v1/meal-plans/copy", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sourceWeekStart: prevWeekDate, targetWeekStart: weekStart }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data?.plan) {
-          setWeekPlan(data.plan);
-          showToast("Đã sao chép thực đơn tuần trước thành công!");
-          return;
-        }
+      const data = await copyMealPlan(prevWeekDate, weekStart);
+      if (data?.plan) {
+        setWeekPlan(data.plan);
+        showToast("Đã sao chép thực đơn tuần trước thành công!");
       }
-    } catch {
-      // Fallback sang local state
+    } catch (err: any) {
+      showToast(err?.message || "Tuần trước chưa có thực đơn để sao chép.");
     }
-
-    const prev = plans[prevWeekDate];
-    if (!prev || Object.keys(prev).length === 0) return showToast("Tuần trước chưa có thực đơn để sao chép.");
-    if (Object.keys(plan).length > 0 && !window.confirm("Thực đơn tuần này sẽ bị thay bằng thực đơn tuần trước. Tiếp tục?"))
-      return;
-    setWeekPlan({ ...prev });
-    showToast("Đã sao chép thực đơn tuần trước.");
   };
 
   const commitLimit = async () => {
@@ -403,13 +290,9 @@ export default function MealPlanPage() {
     if (n > 0) {
       setLimit(n);
       try {
-        await fetch(`http://localhost:3000/api/v1/meal-plans/${weekStart}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ weekStart, budget: n, plan }),
-        });
-      } catch {
-        // Offline fallback
+        await saveMealPlan(weekStart, n, plan);
+      } catch (err: any) {
+        showToast(err?.message || "Không thể cập nhật hạn mức");
       }
     }
     setEditingLimit(false);
@@ -427,9 +310,9 @@ export default function MealPlanPage() {
   }, [picker, pickerQuery, dishes]);
   const pickerCurrentCost = picker ? (dishById[plan[`${picker.day}-${picker.meal}`]]?.cost ?? 0) : 0;
 
-  const suggestions = SUGGESTION_IDS.filter((id) => !hiddenSuggestions.includes(id))
-    .map((id) => dishById[id])
-    .filter(Boolean);
+  const suggestions = dishes
+    .filter((d) => !hiddenSuggestions.includes(d.id))
+    .slice(0, 5);
 
   return (
     <div className="flex min-h-screen bg-[#F7F1EC] font-sans text-[#202B24]">
