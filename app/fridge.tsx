@@ -24,8 +24,23 @@ import {
   Star,
   User,
   Utensils,
+  Plus,
+  Trash2,
+  Sparkles,
+  X,
+  FileText,
 } from "lucide-react";
-import { fetchFridgeItems, fetchFridgeSuggestions, FridgeItem, FridgeSuggestion } from "@/lib/services/fridgeService";
+import {
+  fetchFridgeItems,
+  fetchFridgeSuggestions,
+  addFridgeItem,
+  removeFridgeItem,
+  parseFridgeText,
+  fetchMasterIngredients,
+  FridgeItem,
+  FridgeSuggestion,
+  MasterIngredient,
+} from "@/lib/services/fridgeService";
 import { fetchUserProfile } from "@/lib/services/profileService";
 
 /* ─── Types & Category Visual Helpers ───────────────── */
@@ -212,6 +227,106 @@ export default function FridgePage() {
   const [ingredients, setIngredients] = useState<DisplayIngredient[]>([]);
   const [suggestions, setSuggestions] = useState<FridgeSuggestion[]>([]);
   const [userName, setUserName] = useState("Vũ Quang Huy");
+
+  // State cho Modal thêm thủ công & NLP parse text
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [showParseModal, setShowParseModal] = useState(false);
+  const [masterIngredients, setMasterIngredients] = useState<MasterIngredient[]>([]);
+  const [masterLoading, setMasterLoading] = useState(false);
+  const [selectedIngredientId, setSelectedIngredientId] = useState("");
+  const [quantityInput, setQuantityInput] = useState("1");
+  const [parseText, setParseText] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const loadMasterIngredients = async () => {
+    if (masterIngredients.length > 0) return;
+    try {
+      setMasterLoading(true);
+      const data = await fetchMasterIngredients();
+      setMasterIngredients(data);
+      if (data.length > 0 && !selectedIngredientId) {
+        setSelectedIngredientId(data[0].id);
+      }
+    } catch (err: any) {
+      console.error(err);
+    } finally {
+      setMasterLoading(false);
+    }
+  };
+
+  const handleDelete = async (id: string, name: string) => {
+    if (!window.confirm(`Xác nhận xóa "${name}" khỏi tủ lạnh?`)) return;
+    try {
+      setDeletingId(id);
+      await removeFridgeItem(id);
+      setIngredients((prev) => prev.filter((i) => i.id !== id));
+      showToast(`Đã xóa ${name} khỏi tủ lạnh!`);
+      loadData(true);
+    } catch (err: any) {
+      alert(err.message || "Không thể xóa nguyên liệu");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const handleAddSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedIngredientId) {
+      alert("Vui lòng chọn một nguyên liệu");
+      return;
+    }
+    const qty = parseFloat(quantityInput);
+    if (isNaN(qty) || qty <= 0) {
+      alert("Vui lòng nhập số lượng hợp lệ (> 0)");
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      await addFridgeItem({ ingredientId: selectedIngredientId, quantity: qty });
+      setShowAddModal(false);
+      setQuantityInput("1");
+      showToast("Đã thêm nguyên liệu vào tủ lạnh thành công!");
+      await loadData(true);
+    } catch (err: any) {
+      alert(err.message || "Không thể thêm nguyên liệu vào tủ lạnh");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleParseSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!parseText.trim()) {
+      alert("Vui lòng nhập hoặc dán danh sách nguyên liệu");
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      const result = await parseFridgeText(parseText, true);
+      setShowParseModal(false);
+      setParseText("");
+      const count = result.items?.length || 0;
+      if (count > 0) {
+        showToast(`Đã nhận diện & thêm thành công ${count} nguyên liệu vào tủ!`);
+      } else {
+        showToast("Không tìm thấy nguyên liệu khớp trong văn bản");
+      }
+      await loadData(true);
+    } catch (err: any) {
+      alert(err.message || "Không thể nhận diện văn bản");
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const loadData = async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
@@ -425,14 +540,27 @@ export default function FridgePage() {
                   <br />
                   và không lo bỏ phí thực phẩm!
                 </p>
-                <a
-                  href="#nguyen-lieu"
-                  className="mt-4 inline-flex w-fit items-center gap-2 rounded-full bg-[#184B3A] px-5 py-2.5 text-sm font-bold text-white shadow-sm transition-all hover:scale-[1.02] hover:bg-[#12392c] active:scale-[0.98]"
-                >
-                  <Refrigerator className="h-4 w-4" aria-hidden="true" />
-                  Khám phá ngay
-                  <ArrowRight className="h-4 w-4" aria-hidden="true" />
-                </a>
+                <div className="mt-4 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAddModal(true);
+                      loadMasterIngredients();
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-full bg-[#184B3A] px-4 py-2 text-xs font-bold text-white shadow-sm transition-all hover:scale-[1.02] hover:bg-[#12392c] active:scale-[0.98]"
+                  >
+                    <Plus className="h-4 w-4" aria-hidden="true" />
+                    Thêm thực phẩm
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowParseModal(true)}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-[#D5E5DA] bg-white/90 px-3.5 py-2 text-xs font-bold text-[#184B3A] shadow-sm transition-all hover:bg-white active:scale-[0.98]"
+                  >
+                    <Sparkles className="h-4 w-4 text-amber-500" aria-hidden="true" />
+                    Nhập văn bản nhanh
+                  </button>
+                </div>
               </div>
 
               <div className="absolute right-0 top-0 hidden h-full w-[52%] sm:block">
@@ -549,19 +677,38 @@ export default function FridgePage() {
 
             {/* Danh sách nguyên liệu trong tủ */}
             <div id="nguyen-lieu" className="shrink-0 scroll-mt-4 rounded-3xl border border-[#EEE7DF] bg-[#FFFDF9] p-5 shadow-sm">
-              <div className="mb-3 flex items-center justify-between">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <h3 className="flex items-center gap-2.5 text-base font-black">
                   <span className="text-2xl" aria-hidden="true">
                     🍎
                   </span>
                   Danh sách nguyên liệu trong tủ
                 </h3>
-                <Link
-                  href="/fridge/items"
-                  className="flex items-center gap-1 text-xs font-semibold text-[#184B3A] hover:underline"
-                >
-                  Xem tất cả <ArrowRight className="h-3 w-3" aria-hidden="true" />
-                </Link>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAddModal(true);
+                      loadMasterIngredients();
+                    }}
+                    className="flex items-center gap-1.5 rounded-full bg-[#184B3A] px-3.5 py-1.5 text-xs font-bold text-white shadow-sm hover:bg-[#12392c] transition"
+                  >
+                    <Plus className="h-3.5 w-3.5" /> Thêm nguyên liệu
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowParseModal(true)}
+                    className="flex items-center gap-1.5 rounded-full border border-[#D5E5DA] bg-[#EAF2ED] px-3.5 py-1.5 text-xs font-bold text-[#184B3A] shadow-sm hover:bg-[#d9eadf] transition"
+                  >
+                    <Sparkles className="h-3.5 w-3.5 text-amber-500" /> Nhập văn bản nhanh
+                  </button>
+                  <Link
+                    href="/fridge/items"
+                    className="flex items-center gap-1 text-xs font-semibold text-[#184B3A] hover:underline ml-1"
+                  >
+                    Xem tất cả <ArrowRight className="h-3 w-3" aria-hidden="true" />
+                  </Link>
+                </div>
               </div>
 
               {loading && ingredients.length === 0 ? (
@@ -581,13 +728,25 @@ export default function FridgePage() {
                     return (
                       <li
                         key={i.id}
-                        className="flex flex-col items-center rounded-2xl border border-[#F0E9DF] bg-[#FFFCF7] px-2 py-3 text-center shadow-sm"
+                        className="group relative flex flex-col items-center rounded-2xl border border-[#F0E9DF] bg-[#FFFCF7] px-2 py-3 text-center shadow-sm hover:shadow-md transition"
                       >
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(i.id, i.name)}
+                          disabled={deletingId === i.id}
+                          title={`Xóa ${i.name}`}
+                          className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full text-stone-300 hover:bg-red-50 hover:text-red-600 transition"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
                         <span className="text-5xl" aria-hidden="true">
                           {i.emoji}
                         </span>
                         <span className="mt-1.5 text-[13px] font-semibold">{i.name}</span>
-                        <span className={`mt-1.5 rounded-full px-3 py-0.5 text-xs font-semibold ${u.chip} ${u.text}`}>
+                        <p className="text-[11px] font-bold text-[#184B3A]">
+                          {i.quantity} {i.unit}
+                        </p>
+                        <span className={`mt-1 rounded-full px-3 py-0.5 text-xs font-semibold ${u.chip} ${u.text}`}>
                           (~ {i.daysLeft} ngày)
                         </span>
                       </li>
@@ -715,6 +874,176 @@ export default function FridgePage() {
           </aside>
         </main>
       </div>
+
+      {/* ─── MODAL THÊM NGUYÊN LIỆU THỦ CÔNG ─── */}
+      {showAddModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+          onClick={() => setShowAddModal(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-3xl border border-[#EEE7DF] bg-[#FFFDF9] p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-[#EEE7DF] pb-3 mb-4">
+              <h3 className="text-lg font-black text-[#184B3A] flex items-center gap-2">
+                <Plus className="h-5 w-5" />
+                Thêm thực phẩm vào tủ
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowAddModal(false)}
+                className="flex h-8 w-8 items-center justify-center rounded-full text-stone-400 hover:bg-stone-100 hover:text-stone-700"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddSubmit} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-[#202B24] mb-1.5">
+                  Chọn loại thực phẩm / nguyên liệu
+                </label>
+                {masterLoading ? (
+                  <div className="h-10 rounded-2xl bg-[#F0E9DF]/60 animate-pulse" />
+                ) : (
+                  <select
+                    value={selectedIngredientId}
+                    onChange={(e) => setSelectedIngredientId(e.target.value)}
+                    className="w-full rounded-2xl border border-[#EEE7DF] bg-white px-3.5 py-2.5 text-xs font-bold text-[#202B24] focus:outline-none focus:ring-2 focus:ring-[#184B3A]"
+                  >
+                    {masterIngredients.map((ing) => (
+                      <option key={ing.id} value={ing.id}>
+                        {ing.name} ({ing.category} - đơn vị: {ing.unit})
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-[#202B24] mb-1.5">
+                  Số lượng (theo đơn vị của thực phẩm)
+                </label>
+                <input
+                  type="number"
+                  step="any"
+                  min="0.01"
+                  value={quantityInput}
+                  onChange={(e) => setQuantityInput(e.target.value)}
+                  placeholder="Ví dụ: 2 quả, 200g, 1 bó..."
+                  required
+                  className="w-full rounded-2xl border border-[#EEE7DF] bg-white px-3.5 py-2.5 text-xs font-bold text-[#202B24] focus:outline-none focus:ring-2 focus:ring-[#184B3A]"
+                />
+              </div>
+
+              <div className="rounded-2xl bg-[#FAF5EE] p-3 text-xs text-[#77736D]">
+                💡 Mẹo: Hệ thống sẽ tự động tính toán thời hạn bảo quản tối ưu và đưa ra gợi ý nấu ăn tương ứng ngay khi thêm.
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAddModal(false)}
+                  className="rounded-full border border-[#EEE7DF] bg-white px-5 py-2 text-xs font-bold text-[#5f5b55] hover:bg-[#FAF4ED]"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting || masterLoading}
+                  className="rounded-full bg-[#184B3A] px-6 py-2 text-xs font-bold text-white shadow-md hover:bg-[#12392c] disabled:opacity-50"
+                >
+                  {submitting ? "Đang thêm..." : "Thêm vào tủ lạnh"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ─── MODAL NHẬP VĂN BẢN NHANH (NLP) ─── */}
+      {showParseModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+          onClick={() => setShowParseModal(false)}
+        >
+          <div
+            className="w-full max-w-lg rounded-3xl border border-[#EEE7DF] bg-[#FFFDF9] p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-[#EEE7DF] pb-3 mb-4">
+              <h3 className="text-lg font-black text-[#184B3A] flex items-center gap-2">
+                <Sparkles className="h-5 w-5 text-amber-500" />
+                Nhập văn bản nhanh (NLP)
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowParseModal(false)}
+                className="flex h-8 w-8 items-center justify-center rounded-full text-stone-400 hover:bg-stone-100 hover:text-stone-700"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleParseSubmit} className="space-y-4">
+              <p className="text-xs text-[#77736D] leading-relaxed">
+                Dán danh sách đồ vừa đi chợ hoặc gõ tự nhiên, AI sẽ tự bóc tách số lượng và thêm ngay vào tủ lạnh của bạn:
+              </p>
+
+              <textarea
+                rows={4}
+                value={parseText}
+                onChange={(e) => setParseText(e.target.value)}
+                placeholder="Ví dụ: 3 quả trứng gà, 1 mớ rau muống, 200g thịt heo xay, 1 hộp cá ngừ..."
+                className="w-full rounded-2xl border border-[#EEE7DF] bg-white p-3.5 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-[#184B3A]"
+              />
+
+              <div className="flex flex-wrap gap-1.5">
+                <span className="text-[11px] text-[#77736D] font-semibold">Mẫu thử nhanh:</span>
+                <button
+                  type="button"
+                  onClick={() => setParseText("2 quả trứng gà, 1 quả cà chua, 1 miếng đậu hũ")}
+                  className="rounded-full bg-[#FAF5EE] px-2.5 py-0.5 text-[11px] font-medium text-[#184B3A] hover:bg-[#EEE4D4]"
+                >
+                  Trứng + Cà chua + Đậu hũ
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setParseText("200g thịt heo xay, 1 bó rau muống, 2 củ tỏi")}
+                  className="rounded-full bg-[#FAF5EE] px-2.5 py-0.5 text-[11px] font-medium text-[#184B3A] hover:bg-[#EEE4D4]"
+                >
+                  Thịt heo xay + Rau muống
+                </button>
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowParseModal(false)}
+                  className="rounded-full border border-[#EEE7DF] bg-white px-5 py-2 text-xs font-bold text-[#5f5b55] hover:bg-[#FAF4ED]"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting || !parseText.trim()}
+                  className="rounded-full bg-[#184B3A] px-6 py-2 text-xs font-bold text-white shadow-md hover:bg-[#12392c] disabled:opacity-50"
+                >
+                  {submitting ? "Đang nhận diện..." : "Phân tích & Tự động lưu"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Toast thông báo */}
+      {toast && (
+        <div className="fixed bottom-5 left-1/2 z-50 -translate-x-1/2 rounded-full bg-[#184B3A] px-5 py-2.5 text-xs font-bold text-white shadow-xl">
+          {toast}
+        </div>
+      )}
     </div>
   );
 }

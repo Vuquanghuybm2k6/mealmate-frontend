@@ -10,6 +10,20 @@ export interface FridgeItem {
   addedAt: string;
 }
 
+export interface MasterIngredient {
+  id: string;
+  name: string;
+  category: string;
+  unit: string;
+  pricePerUnit: number;
+  nutritionPer100g?: {
+    kcal: number;
+    protein: number;
+    carbs: number;
+    fat: number;
+  };
+}
+
 export interface FridgeSuggestion {
   recipe: {
     id: string;
@@ -57,6 +71,21 @@ export async function fetchFridgeItems(): Promise<FridgeItem[]> {
   return await res.json();
 }
 
+export async function fetchMasterIngredients(q?: string): Promise<MasterIngredient[]> {
+  const query = q ? `?q=${encodeURIComponent(q)}` : '';
+  const res = await fetch(`${API_BASE}/ingredients${query}`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+    cache: 'no-store',
+  });
+
+  if (!res.ok) {
+    throw new Error(`Lỗi máy chủ khi tải danh mục nguyên liệu (${res.status})`);
+  }
+
+  return await res.json();
+}
+
 export async function fetchFridgeSuggestions(params?: {
   budget?: number;
   meal?: string;
@@ -80,10 +109,8 @@ export async function fetchFridgeSuggestions(params?: {
 }
 
 export async function addFridgeItem(item: {
-  ingredientId?: string;
-  name?: string;
+  ingredientId: string;
   quantity: number;
-  unit?: string;
 }): Promise<FridgeItem> {
   const res = await fetch(`${API_BASE}/fridge`, {
     method: 'POST',
@@ -92,14 +119,15 @@ export async function addFridgeItem(item: {
   });
 
   if (!res.ok) {
-    throw new Error(`Không thể thêm nguyên liệu vào tủ lạnh (${res.status})`);
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || `Không thể thêm nguyên liệu vào tủ lạnh (${res.status})`);
   }
 
   return await res.json();
 }
 
-export async function removeFridgeItem(id: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/fridge/${id}`, {
+export async function removeFridgeItem(idOrIngredientId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/fridge/${idOrIngredientId}`, {
     method: 'DELETE',
   });
 
@@ -108,14 +136,18 @@ export async function removeFridgeItem(id: string): Promise<void> {
   }
 }
 
-export async function parseFridgeText(text: string): Promise<{
-  items: Array<{ name: string; quantity: number; unit: string }>;
+export async function parseFridgeText(
+  text: string,
+  save: boolean = false
+): Promise<{
+  items: Array<{ ingredientId: string; name: string; quantity: number; unit: string }>;
   unmatched: string[];
+  saved?: boolean;
 }> {
   const res = await fetch(`${API_BASE}/fridge/parse`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ text, save }),
   });
 
   if (!res.ok) {
