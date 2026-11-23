@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   ArrowRight,
   Bell,
+  CalendarCheck,
   CalendarDays,
   ChefHat,
   ChevronDown,
@@ -80,6 +81,7 @@ const NAV_ITEMS = [
   { href: "/fridge", label: "Tủ lạnh thông minh", Icon: Refrigerator },
   { href: "/shopping", label: "Danh sách mua", Icon: ShoppingCart },
   { href: "/history", label: "Lịch sử ăn uống", Icon: Clock },
+  { href: "/meal-plan", label: "Lên thực đơn", Icon: CalendarCheck },
   { href: "/profile", label: "Hồ sơ cá nhân", Icon: User },
 ];
 
@@ -120,10 +122,46 @@ export default function ShoppingPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [range, setRange] = useState("7d");
   const [items, setItems] = useState<Item[]>(INITIAL_ITEMS);
+  const [userName, setUserName] = useState("Vũ Quang Huy");
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState({ name: "", qty: "", price: "", group: "veg" });
   const [ordered, setOrdered] = useState(false);
+
+  useEffect(() => {
+    async function loadShopping() {
+      try {
+        const res = await fetch("http://localhost:3000/api/v1/shopping");
+        if (res.ok) {
+          const data = await res.json();
+          if (data?.items && Array.isArray(data.items) && data.items.length > 0) {
+            setItems(
+              data.items.map((i: any) => ({
+                id: i.id,
+                group: i.group || "veg",
+                name: i.name,
+                emoji: i.emoji || "🥬",
+                qty: i.qty ? `~ ${i.qty}` : "~ 1",
+                price: i.price || 0,
+                done: Boolean(i.done),
+              }))
+            );
+          }
+        }
+      } catch (err) {
+        console.warn("Chưa tải được danh sách mua:", err);
+      }
+
+      try {
+        const profRes = await fetch("http://localhost:3000/api/v1/profile");
+        if (profRes.ok) {
+          const prof = await profRes.json();
+          if (prof?.data?.name) setUserName(prof.data.name);
+        }
+      } catch {}
+    }
+    loadShopping();
+  }, []);
 
   // Ctrl/Cmd + K để focus ô tìm kiếm
   useEffect(() => {
@@ -277,9 +315,9 @@ export default function ShoppingPage() {
                 className="flex h-9 w-9 items-center justify-center rounded-full bg-[#184B3A] text-xs font-bold text-white"
                 aria-hidden="true"
               >
-                NA
+                {userName.split(" ").slice(-1)[0]?.slice(0, 2).toUpperCase() || "HU"}
               </span>
-              <span className="hidden text-[13px] font-semibold sm:inline">Nguyễn Minh Anh</span>
+              <span className="hidden text-[13px] font-semibold sm:inline">{userName}</span>
               <ChevronDown className="h-4 w-4" aria-hidden="true" />
             </button>
           </div>

@@ -6,6 +6,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowRight,
   Bell,
+  CalendarCheck,
   ChefHat,
   ChevronDown,
   Clock,
@@ -84,6 +85,7 @@ const NAV_ITEMS = [
   { href: "/fridge", label: "Tủ lạnh thông minh", Icon: Refrigerator },
   { href: "/shopping", label: "Danh sách mua", Icon: ShoppingCart },
   { href: "/history", label: "Lịch sử ăn uống", Icon: Clock },
+  { href: "/meal-plan", label: "Lên thực đơn", Icon: CalendarCheck },
   { href: "/profile", label: "Hồ sơ cá nhân", Icon: User },
 ];
 
@@ -223,6 +225,69 @@ function RecipesContent() {
   const [category, setCategory] = useState("all");
   const [moreOpen, setMoreOpen] = useState(false);
   const [favs, setFavs] = useState<Record<string, boolean>>({});
+  const [userName, setUserName] = useState("Vũ Quang Huy");
+  const [recipes, setRecipes] = useState<Recipe[]>(ALL_RECIPES);
+
+  useEffect(() => {
+    async function fetchData() {
+      try {
+        const profRes = await fetch("http://localhost:3000/api/v1/profile");
+        if (profRes.ok) {
+          const prof = await profRes.json();
+          if (prof?.data?.name) setUserName(prof.data.name);
+        }
+      } catch {}
+
+      try {
+        const res = await fetch("http://localhost:3000/api/v1/recipes");
+        if (res.ok) {
+          const list = await res.json();
+          if (Array.isArray(list) && list.length > 0) {
+            setRecipes(
+              list.map((r: any) => ({
+                id: r.id,
+                title: r.title,
+                emoji: r.title.includes("Cơm")
+                  ? "🍚"
+                  : r.title.includes("Bún")
+                  ? "🍜"
+                  : r.title.includes("Canh")
+                  ? "🍲"
+                  : r.title.includes("Mì")
+                  ? "🍝"
+                  : r.title.includes("Gà")
+                  ? "🍗"
+                  : r.title.includes("Trứng")
+                  ? "🍳"
+                  : "🥘",
+                img:
+                  r.imageUrl && !r.imageUrl.includes("placehold.co")
+                    ? r.imageUrl
+                    : "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=600&q=80",
+                time: r.cookMinutes || 15,
+                kcal: Math.round(r.kcal || 350),
+                rating: 4.8,
+                cat: r.title.includes("Cơm")
+                  ? "com"
+                  : r.title.includes("Canh")
+                  ? "canh"
+                  : r.title.includes("Xào")
+                  ? "xao"
+                  : "com",
+                tags: [
+                  r.isHealthy ? "Healthy" : "Nhanh gọn",
+                  r.difficulty === "easy" ? "Dễ làm" : "Đủ chất",
+                ],
+              }))
+            );
+          }
+        }
+      } catch (err) {
+        console.warn("Chưa tải được recipes:", err);
+      }
+    }
+    fetchData();
+  }, []);
 
   // Đồng bộ ô tìm kiếm khi URL ?q= đổi
   useEffect(() => setSearchQuery(urlQuery), [urlQuery]);
@@ -254,13 +319,16 @@ function RecipesContent() {
 
   const results = useMemo(() => {
     const q = norm(urlQuery.trim());
-    return ALL_RECIPES.filter(
+    return recipes.filter(
       (r) =>
         (category === "all" || r.cat === category) &&
         (!maxTime || r.time <= maxTime) &&
         (!q || norm(`${r.title} ${r.tags.join(" ")}`).includes(q))
     );
-  }, [category, urlQuery, maxTime]);
+  }, [recipes, category, urlQuery, maxTime]);
+
+  const featured = useMemo(() => recipes.slice(0, 4), [recipes]);
+  const popular = useMemo(() => (recipes.length > 4 ? recipes.slice(4) : recipes), [recipes]);
 
   const chipBase =
     "flex shrink-0 items-center gap-2 rounded-full px-4 py-2 text-[13px] font-semibold shadow-sm transition-all";
@@ -351,9 +419,9 @@ function RecipesContent() {
                 className="flex h-9 w-9 items-center justify-center rounded-full bg-[#184B3A] text-xs font-bold text-white"
                 aria-hidden="true"
               >
-                NA
+                {userName.split(" ").slice(-1)[0]?.slice(0, 2).toUpperCase() || "HU"}
               </span>
-              <span className="hidden text-[13px] font-semibold sm:inline">Nguyễn Minh Anh</span>
+              <span className="hidden text-[13px] font-semibold sm:inline">{userName}</span>
               <ChevronDown className="h-4 w-4 text-[#202B24]" aria-hidden="true" />
             </button>
           </div>
@@ -518,7 +586,7 @@ function RecipesContent() {
                   title="Công thức nổi bật"
                 />
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                  {FEATURED.map((r) => (
+                  {featured.map((r) => (
                     <RecipeCard key={r.id} recipe={r} fav={!!favs[r.id]} onToggleFav={() => toggleFav(r.id)} />
                   ))}
                 </div>
@@ -530,7 +598,7 @@ function RecipesContent() {
                   title="Công thức được yêu thích"
                 />
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                  {POPULAR.map((r) => (
+                  {popular.map((r) => (
                     <RecipeCard key={r.id} recipe={r} fav={!!favs[r.id]} onToggleFav={() => toggleFav(r.id)} />
                   ))}
                 </div>

@@ -8,6 +8,7 @@ import {
   ArrowRight,
   Beef,
   Bell,
+  CalendarCheck,
   ChefHat,
   ChevronDown,
   Clock,
@@ -38,52 +39,51 @@ const fireConfetti = (particleCount: number) => {
   }
 };
 
-/* ─── Mock data (TODO: thay bằng API qua Axios) ───────── */
-// Ảnh: thay bằng URL Cloudinary của bạn. Nếu ảnh lỗi/trống, thẻ tự hiện emoji.
-const RECIPES = [
+/* ─── Dữ liệu công thức (khởi tạo, sau đó nạp tự động từ Backend /api/v1/recipes) ─── */
+const DEFAULT_RECIPES = [
   {
-    id: "r1",
+    id: "recipe-com-trung-ca-chua",
     title: "Cơm trứng cà chua",
     emoji: "🍚",
     img: "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=500&q=80",
-    cost: 12000,
+    cost: 16000,
     time: 15,
     kcal: 420,
     protein: 18,
   },
   {
-    id: "r2",
-    title: "Đậu phụ sốt cà chua",
+    id: "recipe-com-dau-hu-sot-ca",
+    title: "Cơm đậu hũ sốt cà",
     emoji: "🥘",
     img: "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=500&q=80",
-    cost: 15000,
+    cost: 17000,
     time: 18,
     kcal: 350,
     protein: 16,
   },
   {
-    id: "r3",
-    title: "Mì xào trứng rau củ",
+    id: "recipe-mi-xao-trung",
+    title: "Mì gói xào trứng",
     emoji: "🍜",
     img: "https://images.unsplash.com/photo-1569718212165-3a8278d5f624?auto=format&fit=crop&w=500&q=80",
-    cost: 14000,
+    cost: 15000,
     time: 15,
     kcal: 360,
     protein: 16,
   },
   {
-    id: "r4",
-    title: "Canh trứng rong biển",
+    id: "recipe-banh-mi-trung",
+    title: "Bánh mì trứng",
     emoji: "🍲",
     img: "https://images.unsplash.com/photo-1547592180-85f173990554?auto=format&fit=crop&w=500&q=80",
-    cost: 8000,
+    cost: 15000,
     time: 12,
-    kcal: 120,
-    protein: 10,
+    kcal: 320,
+    protein: 14,
   },
 ];
 
-type Recipe = (typeof RECIPES)[number];
+export type Recipe = (typeof DEFAULT_RECIPES)[number];
 
 const HERO_IMG =
   "https://images.unsplash.com/photo-1512058564366-18510be2db19?auto=format&fit=crop&w=1000&q=80";
@@ -95,6 +95,7 @@ const NAV_ITEMS = [
   { href: "/fridge", label: "Tủ lạnh thông minh", Icon: Refrigerator },
   { href: "/shopping", label: "Danh sách mua", Icon: ShoppingCart },
   { href: "/history", label: "Lịch sử ăn uống", Icon: Clock },
+  { href: "/meal-plan", label: "Lên thực đơn", Icon: CalendarCheck },
   { href: "/profile", label: "Hồ sơ cá nhân", Icon: User },
 ];
 
@@ -348,26 +349,28 @@ function GiftBoxes() {
 }
 
 /* ─── Vòng quay ───────────────────────────────────────── */
-const SEG = 360 / RECIPES.length;
 const SPIN_MS = 3200;
-const WHEEL_COLORS = ["#f97316", "#fbbf24", "#22c55e", "#38bdf8"];
-const WHEEL_BG = `conic-gradient(${RECIPES.map(
-  (_, i) => `${WHEEL_COLORS[i % WHEEL_COLORS.length]} ${i * SEG}deg ${(i + 1) * SEG}deg`
-).join(", ")})`;
+const WHEEL_COLORS = ["#f97316", "#fbbf24", "#22c55e", "#38bdf8", "#a855f7", "#ec4899"];
 
 // Bản nhỏ trang trí trên trang chủ
-function WheelGraphic() {
+function WheelGraphic({ recipes = DEFAULT_RECIPES }: { recipes?: Recipe[] }) {
+  const items = recipes.length > 0 ? recipes.slice(0, 4) : DEFAULT_RECIPES;
+  const seg = 360 / items.length;
+  const wheelBg = `conic-gradient(${items
+    .map((_, i) => `${WHEEL_COLORS[i % WHEEL_COLORS.length]} ${i * seg}deg ${(i + 1) * seg}deg`)
+    .join(", ")})`;
+
   return (
     <span
       className="relative flex h-28 w-28 shrink-0 items-center justify-center rounded-full border-[5px] border-[#FCD34D] shadow-md"
-      style={{ background: WHEEL_BG }}
+      style={{ background: wheelBg }}
       aria-hidden="true"
     >
-      {RECIPES.map((r, i) => (
+      {items.map((r, i) => (
         <span
           key={r.id}
           className="absolute inset-0 flex justify-center"
-          style={{ transform: `rotate(${i * SEG + SEG / 2}deg)` }}
+          style={{ transform: `rotate(${i * seg + seg / 2}deg)` }}
         >
           <span className="mt-2 text-sm">{r.emoji}</span>
         </span>
@@ -381,7 +384,21 @@ function WheelGraphic() {
   );
 }
 
-function LuckyWheelModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+function LuckyWheelModal({
+  open,
+  onClose,
+  recipes = DEFAULT_RECIPES,
+}: {
+  open: boolean;
+  onClose: () => void;
+  recipes?: Recipe[];
+}) {
+  const items = recipes.length > 0 ? recipes.slice(0, 6) : DEFAULT_RECIPES;
+  const seg = 360 / items.length;
+  const wheelBg = `conic-gradient(${items
+    .map((_, i) => `${WHEEL_COLORS[i % WHEEL_COLORS.length]} ${i * seg}deg ${(i + 1) * seg}deg`)
+    .join(", ")})`;
+
   const [deg, setDeg] = useState(0);
   const [spinning, setSpinning] = useState(false);
   const [chosen, setChosen] = useState<Recipe | null>(null);
@@ -417,13 +434,13 @@ function LuckyWheelModal({ open, onClose }: { open: boolean; onClose: () => void
   const spin = () => {
     if (spinning) return;
     // Chọn món trước, rồi tính góc để kim chỉ dừng đúng ô của món đó
-    const index = Math.floor(Math.random() * RECIPES.length);
-    const target = (360 - (index * SEG + SEG / 2)) % 360;
+    const index = Math.floor(Math.random() * items.length);
+    const target = (360 - (index * seg + seg / 2)) % 360;
     setSpinning(true);
     setChosen(null);
     setDeg((d) => d - (d % 360) + 360 * 5 + target);
     timer.current = setTimeout(() => {
-      setChosen(RECIPES[index]);
+      setChosen(items[index]);
       setSpinning(false);
       fireConfetti(100);
     }, SPIN_MS);
@@ -473,17 +490,17 @@ function LuckyWheelModal({ open, onClose }: { open: boolean; onClose: () => void
           <div
             className="relative h-full w-full overflow-hidden rounded-full border-4 border-amber-300 shadow-md"
             style={{
-              background: WHEEL_BG,
+              background: wheelBg,
               transform: `rotate(${deg}deg)`,
               transition: spinning ? `transform ${SPIN_MS}ms cubic-bezier(0.15, 0.7, 0.1, 1)` : "none",
             }}
             aria-hidden="true"
           >
-            {RECIPES.map((r, i) => (
+            {items.map((r, i) => (
               <div
                 key={r.id}
                 className="absolute inset-0 flex justify-center"
-                style={{ transform: `rotate(${i * SEG + SEG / 2}deg)` }}
+                style={{ transform: `rotate(${i * seg + seg / 2}deg)` }}
               >
                 <span className="mt-5 text-3xl">{r.emoji}</span>
               </div>
@@ -536,11 +553,95 @@ export default function HomePage() {
   const router = useRouter();
   const searchRef = useRef<HTMLInputElement>(null);
 
-  const [streak, setStreak] = useState(5); // TODO: đọc từ API (bảng streaks)
+  const [streak, setStreak] = useState(5);
+  const [weeklyCost, setWeeklyCost] = useState(98000);
+  const [userName, setUserName] = useState("Vũ Quang Huy");
+  const [recipes, setRecipes] = useState<Recipe[]>(DEFAULT_RECIPES);
   const [eaten, setEaten] = useState(false);
   const [wheelOpen, setWheelOpen] = useState(false);
   const [favs, setFavs] = useState<Record<string, boolean>>({});
   const [searchQuery, setSearchQuery] = useState("");
+
+  // Tải dữ liệu thật từ Backend API (thống kê chuỗi ngày, chi tiêu tuần, profile, công thức món)
+  useEffect(() => {
+    async function loadData() {
+      try {
+        const streakRes = await fetch("http://localhost:3000/api/v1/fun/streak");
+        if (streakRes.ok) {
+          const streakData = await streakRes.json();
+          if (streakData?.currentStreak !== undefined && streakData.currentStreak > 0) {
+            setStreak(streakData.currentStreak);
+          }
+        }
+      } catch (err) {
+        console.warn("Chưa kết nối streak:", err);
+      }
+
+      try {
+        const statsRes = await fetch("http://localhost:3000/api/v1/meals/statistics");
+        if (statsRes.ok) {
+          const stats = await statsRes.json();
+          if (stats?.totalCost !== undefined && stats.totalCost > 0) {
+            setWeeklyCost(stats.totalCost);
+          }
+        }
+      } catch (err) {
+        console.warn("Chưa kết nối statistics:", err);
+      }
+
+      try {
+        const profRes = await fetch("http://localhost:3000/api/v1/profile");
+        if (profRes.ok) {
+          const prof = await profRes.json();
+          if (prof?.data?.name) {
+            setUserName(prof.data.name);
+          }
+        }
+      } catch (err) {
+        console.warn("Chưa kết nối profile:", err);
+      }
+
+      try {
+        const recipesRes = await fetch("http://localhost:3000/api/v1/recipes");
+        if (recipesRes.ok) {
+          const list = await recipesRes.json();
+          if (Array.isArray(list) && list.length > 0) {
+            setRecipes(
+              list.map((r: any) => ({
+                id: r.id,
+                title: r.title,
+                emoji: r.title.includes("Cơm")
+                  ? "🍚"
+                  : r.title.includes("Bún")
+                  ? "🍜"
+                  : r.title.includes("Canh")
+                  ? "🍲"
+                  : r.title.includes("Mì")
+                  ? "🍝"
+                  : r.title.includes("Gà")
+                  ? "🍗"
+                  : r.title.includes("Trứng")
+                  ? "🍳"
+                  : "🥘",
+                img:
+                  r.imageUrl && !r.imageUrl.includes("placehold.co")
+                    ? r.imageUrl
+                    : "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=500&q=80",
+                cost: r.costEstimate || 15000,
+                time: r.cookMinutes || 15,
+                kcal: Math.round(r.kcal || 400),
+                protein: Math.round(r.protein || 15),
+              }))
+            );
+          }
+        }
+      } catch (err) {
+        console.warn("Chưa kết nối recipes:", err);
+      }
+    }
+
+    loadData();
+  }, []);
 
   // Đồng bộ chiều cao banner "Hôm nay ăn gì?" để bằng chính xác card "Thành tích của bạn"
   const achievementCardRef = useRef<HTMLDivElement>(null);
@@ -583,14 +684,52 @@ export default function HomePage() {
     router.push(q ? `/recipes?q=${encodeURIComponent(q)}` : "/recipes");
   };
 
-  const toggleFav = (id: string) => setFavs((prev) => ({ ...prev, [id]: !prev[id] }));
+  const toggleFav = async (id: string) => {
+    const nextVal = !favs[id];
+    setFavs((prev) => ({ ...prev, [id]: nextVal }));
+    try {
+      await fetch(`http://localhost:3000/api/v1/recipes/${id}/favorite`, {
+        method: "POST",
+      });
+    } catch {}
+  };
 
-  const handleMarkEaten = () => {
+  const handleMarkEaten = async () => {
     if (eaten) return;
-    // TODO: gọi POST /meals rồi lấy streak mới từ server
     setEaten(true);
     setStreak((s) => s + 1);
     fireConfetti(70);
+
+    try {
+      await fetch("http://localhost:3000/api/v1/meals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          recipeId: "recipe-com-trung-ca-chua",
+          mealType: "lunch",
+          cost: 16000,
+          kcal: 420,
+        }),
+      });
+
+      // Cập nhật lại streak thật từ server
+      const streakRes = await fetch("http://localhost:3000/api/v1/fun/streak");
+      if (streakRes.ok) {
+        const streakData = await streakRes.json();
+        if (streakData?.currentStreak) {
+          setStreak(streakData.currentStreak);
+        }
+      }
+      const statsRes = await fetch("http://localhost:3000/api/v1/meals/statistics");
+      if (statsRes.ok) {
+        const stats = await statsRes.json();
+        if (stats?.totalCost) {
+          setWeeklyCost(stats.totalCost);
+        }
+      }
+    } catch (err) {
+      console.warn("Ghi nhận bữa ăn:", err);
+    }
   };
 
   const isActive = (href: string) =>
@@ -680,19 +819,19 @@ export default function HomePage() {
               </span>
             </button>
 
-            <button
-              type="button"
+            <Link
+              href="/profile"
               className="flex items-center gap-2 rounded-full border border-[#EEE7DF] bg-[#FFFDF9] py-1 pl-1 pr-3 shadow-sm transition-colors hover:bg-[#FAF4ED]"
             >
               <span
                 className="flex h-8 w-8 items-center justify-center rounded-full bg-[#184B3A] text-xs font-bold text-white"
                 aria-hidden="true"
               >
-                NA
+                {userName.split(" ").slice(-1)[0]?.slice(0, 2).toUpperCase() || "NA"}
               </span>
-              <span className="hidden text-[13px] font-semibold sm:inline">Nguyễn Minh Anh</span>
+              <span className="hidden text-[13px] font-semibold sm:inline">{userName}</span>
               <ChevronDown className="h-4 w-4 text-[#77736D]" aria-hidden="true" />
-            </button>
+            </Link>
           </div>
         </header>
 
@@ -814,7 +953,7 @@ export default function HomePage() {
               </div>
 
               <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-                {RECIPES.map((recipe) => (
+                {recipes.slice(0, 4).map((recipe) => (
                   <article
                     key={recipe.id}
                     className="flex flex-col overflow-hidden rounded-2xl border border-[#EEE7DF] bg-[#FFFDF9] shadow-sm transition-shadow hover:shadow-md"
@@ -917,7 +1056,7 @@ export default function HomePage() {
                   <div className="mx-auto mb-1 flex h-8 w-8 items-center justify-center rounded-full bg-emerald-100">
                     <Wallet className="h-4 w-4 text-emerald-700" aria-hidden="true" />
                   </div>
-                  <p className="text-lg font-black leading-tight">98.000đ</p>
+                  <p className="text-lg font-black leading-tight">{vnd(weeklyCost)}</p>
                   <p className="mt-0.5 text-[11px] leading-tight text-[#77736D]">
                     Chi tiêu tuần này
                   </p>
@@ -1001,7 +1140,7 @@ export default function HomePage() {
               <span className="mt-auto flex items-end justify-between pt-2">
                 <GiftBoxes />
                 <span className="transition-transform duration-500 group-hover:rotate-12">
-                  <WheelGraphic />
+                  <WheelGraphic recipes={recipes} />
                 </span>
               </span>
             </button>
@@ -1009,7 +1148,7 @@ export default function HomePage() {
         </main>
       </div>
 
-      <LuckyWheelModal open={wheelOpen} onClose={() => setWheelOpen(false)} />
+      <LuckyWheelModal open={wheelOpen} onClose={() => setWheelOpen(false)} recipes={recipes} />
     </div>
   );
 }

@@ -7,6 +7,7 @@ import {
   ArrowRight,
   BarChart3,
   Bell,
+  CalendarCheck,
   CalendarDays,
   CheckCircle2,
   ChefHat,
@@ -149,6 +150,7 @@ const NAV_ITEMS = [
   { href: "/fridge", label: "Tủ lạnh thông minh", Icon: Refrigerator },
   { href: "/shopping", label: "Danh sách mua", Icon: ShoppingCart },
   { href: "/history", label: "Lịch sử ăn uống", Icon: Clock },
+  { href: "/meal-plan", label: "Lên thực đơn", Icon: CalendarCheck },
   { href: "/profile", label: "Hồ sơ cá nhân", Icon: User },
 ];
 
@@ -248,6 +250,20 @@ export default function HistoryPage() {
   const [selected, setSelected] = useState("2026-11-14");
   const [view, setView] = useState({ y: 2026, m: 10 }); // m: 0-11
   const [range, setRange] = useState("7d");
+  const [userName, setUserName] = useState("Vũ Quang Huy");
+
+  useEffect(() => {
+    async function fetchUser() {
+      try {
+        const profRes = await fetch("http://localhost:3000/api/v1/profile");
+        if (profRes.ok) {
+          const prof = await profRes.json();
+          if (prof?.data?.name) setUserName(prof.data.name);
+        }
+      } catch {}
+    }
+    fetchUser();
+  }, []);
 
   // Ctrl/Cmd + K để focus ô tìm kiếm
   useEffect(() => {
@@ -418,9 +434,9 @@ export default function HistoryPage() {
                 className="flex h-9 w-9 items-center justify-center rounded-full bg-[#184B3A] text-xs font-bold text-white"
                 aria-hidden="true"
               >
-                NA
+                {userName.split(" ").slice(-1)[0]?.slice(0, 2).toUpperCase() || "HU"}
               </span>
-              <span className="hidden text-[13px] font-semibold sm:inline">Nguyễn Minh Anh</span>
+              <span className="hidden text-[13px] font-semibold sm:inline">{userName}</span>
               <ChevronDown className="h-4 w-4" aria-hidden="true" />
             </button>
           </div>

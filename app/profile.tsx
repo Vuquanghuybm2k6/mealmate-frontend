@@ -8,6 +8,7 @@ import {
   Bell,
   Bookmark,
   Calendar,
+  CalendarCheck,
   Camera,
   ChefHat,
   ChevronDown,
@@ -56,10 +57,10 @@ type Profile = {
 };
 
 const INITIAL_PROFILE: Profile = {
-  name: "Nguyễn Minh Anh",
-  email: "minhanh2804@gmail.com",
+  name: "Vũ Quang Huy",
+  email: "vuquanghuybm2k6@gmail.com",
   phone: "0987 654 321",
-  birthday: "2004-04-28",
+  birthday: "2006-01-01",
   address: "Hà Nội, Việt Nam",
 };
 
@@ -96,6 +97,7 @@ const NAV_ITEMS = [
   { href: "/fridge", label: "Tủ lạnh thông minh", Icon: Refrigerator },
   { href: "/shopping", label: "Danh sách mua", Icon: ShoppingCart },
   { href: "/history", label: "Lịch sử ăn uống", Icon: Clock },
+  { href: "/meal-plan", label: "Lên thực đơn", Icon: CalendarCheck },
   { href: "/profile", label: "Hồ sơ cá nhân", Icon: User },
 ];
 
@@ -185,6 +187,24 @@ export default function ProfilePage() {
     [avatar]
   );
 
+  useEffect(() => {
+    async function fetchProfile() {
+      try {
+        const res = await fetch("http://localhost:3000/api/v1/profile");
+        if (res.ok) {
+          const json = await res.json();
+          if (json?.data) {
+            setProfile(json.data);
+            setDraft(json.data);
+          }
+        }
+      } catch (err) {
+        console.warn("Chưa tải được profile:", err);
+      }
+    }
+    fetchProfile();
+  }, []);
+
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     const q = searchQuery.trim();
@@ -206,15 +226,26 @@ export default function ProfilePage() {
     setError("");
   };
 
-  const saveEdit = (e: React.FormEvent) => {
+  const saveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!draft.name.trim()) return setError("Vui lòng nhập họ và tên.");
     if (!/^\S+@\S+\.\S+$/.test(draft.email.trim())) return setError("Email chưa đúng định dạng.");
-    // TODO: gọi PUT /users/me
-    setProfile({ ...draft, name: draft.name.trim(), email: draft.email.trim() });
+    
+    const updated = { ...draft, name: draft.name.trim(), email: draft.email.trim() };
+    setProfile(updated);
     setEditing(false);
     setError("");
     setSaved(true);
+
+    try {
+      await fetch("http://localhost:3000/api/v1/profile", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updated),
+      });
+    } catch (err) {
+      console.warn("Lỗi lưu profile:", err);
+    }
   };
 
   const handleAvatar = (e: React.ChangeEvent<HTMLInputElement>) => {

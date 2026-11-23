@@ -8,6 +8,7 @@ import {
   ArrowRight,
   BarChart3,
   Bell,
+  CalendarCheck,
   CalendarDays,
   ChefHat,
   ChevronDown,
@@ -28,12 +29,14 @@ import {
 /* ─── Mock data (TODO: thay bằng API qua Axios) ───────── */
 type Ingredient = { id: string; name: string; emoji: string; daysLeft: number };
 
-const INGREDIENTS: Ingredient[] = [
-  { id: "i1", name: "Trứng gà", emoji: "🥚", daysLeft: 3 },
-  { id: "i2", name: "Ức gà", emoji: "🍗", daysLeft: 2 },
-  { id: "i3", name: "Rau cải", emoji: "🥬", daysLeft: 2 },
-  { id: "i4", name: "Cà chua", emoji: "🍅", daysLeft: 5 },
-  { id: "i5", name: "Cà rốt", emoji: "🥕", daysLeft: 6 },
+const INITIAL_INGREDIENTS: Ingredient[] = [
+  { id: "fridge-1", name: "Trứng gà", emoji: "🥚", daysLeft: 3 },
+  { id: "fridge-2", name: "Rau muống", emoji: "🥬", daysLeft: 2 },
+  { id: "fridge-3", name: "Cà chua", emoji: "🍅", daysLeft: 4 },
+  { id: "fridge-4", name: "Đậu hũ", emoji: "🧈", daysLeft: 2 },
+  { id: "fridge-5", name: "Mì gói", emoji: "🍜", daysLeft: 30 },
+  { id: "fridge-6", name: "Gạo", emoji: "🍚", daysLeft: 60 },
+  { id: "fridge-7", name: "Thịt heo xay", emoji: "🥩", daysLeft: 1 },
 ];
 
 const SPACE_LEFT = 73; // % dung tích còn lại
@@ -62,6 +65,7 @@ const NAV_ITEMS = [
   { href: "/fridge", label: "Tủ lạnh thông minh", Icon: Refrigerator },
   { href: "/shopping", label: "Danh sách mua", Icon: ShoppingCart },
   { href: "/history", label: "Lịch sử ăn uống", Icon: Clock },
+  { href: "/meal-plan", label: "Lên thực đơn", Icon: CalendarCheck },
   { href: "/profile", label: "Hồ sơ cá nhân", Icon: User },
 ];
 
@@ -184,8 +188,42 @@ export default function FridgePage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [updatedAt, setUpdatedAt] = useState(""); // set sau khi mount để tránh lệch hydration
   const [refreshing, setRefreshing] = useState(false);
+  const [ingredients, setIngredients] = useState<Ingredient[]>(INITIAL_INGREDIENTS);
+  const [userName, setUserName] = useState("Vũ Quang Huy");
 
   useEffect(() => setUpdatedAt(formatNow()), []);
+
+  useEffect(() => {
+    async function loadFridge() {
+      try {
+        const res = await fetch("http://localhost:3000/api/v1/fridge");
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data) && data.length > 0) {
+            setIngredients(
+              data.map((item: any) => ({
+                id: item.id,
+                name: item.name,
+                emoji: item.emoji || "🥗",
+                daysLeft: item.daysLeft || 3,
+              }))
+            );
+          }
+        }
+      } catch (err) {
+        console.warn("Chưa tải được tủ lạnh:", err);
+      }
+
+      try {
+        const profRes = await fetch("http://localhost:3000/api/v1/profile");
+        if (profRes.ok) {
+          const prof = await profRes.json();
+          if (prof?.data?.name) setUserName(prof.data.name);
+        }
+      } catch {}
+    }
+    loadFridge();
+  }, []);
 
   // Ctrl/Cmd + K để focus ô tìm kiếm
   useEffect(() => {
@@ -217,11 +255,11 @@ export default function FridgePage() {
 
   const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
 
-  const expiring = INGREDIENTS.filter((i) => i.daysLeft <= EXPIRING_LIMIT)
+  const expiring = ingredients.filter((i) => i.daysLeft <= EXPIRING_LIMIT)
     .sort((a, b) => a.daysLeft - b.daysLeft)
     .slice(0, 3);
-  const soonestDays = Math.min(...INGREDIENTS.map((i) => i.daysLeft));
-  const soonest = INGREDIENTS.find((i) => i.daysLeft === soonestDays);
+  const soonestDays = ingredients.length > 0 ? Math.min(...ingredients.map((i) => i.daysLeft)) : 3;
+  const soonest = ingredients.find((i) => i.daysLeft === soonestDays);
 
   return (
     <div className="flex min-h-screen bg-[#F7F1EC] font-sans text-[#202B24]">
@@ -309,9 +347,9 @@ export default function FridgePage() {
                 className="flex h-9 w-9 items-center justify-center rounded-full bg-[#184B3A] text-xs font-bold text-white"
                 aria-hidden="true"
               >
-                NA
+                {userName.split(" ").slice(-1)[0]?.slice(0, 2).toUpperCase() || "HU"}
               </span>
-              <span className="hidden text-[13px] font-semibold sm:inline">Nguyễn Minh Anh</span>
+              <span className="hidden text-[13px] font-semibold sm:inline">{userName}</span>
               <ChevronDown className="h-4 w-4" aria-hidden="true" />
             </button>
           </div>
@@ -477,7 +515,7 @@ export default function FridgePage() {
               </div>
 
               <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
-                {INGREDIENTS.map((i) => {
+                {ingredients.map((i) => {
                   const u = urgency(i.daysLeft);
                   return (
                     <li
@@ -517,7 +555,7 @@ export default function FridgePage() {
               <div className="grid grid-cols-3 gap-2.5">
                 <StatTile
                   icon={<ShoppingBasket className="h-8 w-8 text-orange-500" aria-hidden="true" />}
-                  value={String(INGREDIENTS.length)}
+                  value={String(ingredients.length)}
                   label={
                     <>
                       Nguyên liệu

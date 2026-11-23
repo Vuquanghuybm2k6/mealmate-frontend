@@ -14,7 +14,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   searchQuery,
   setSearchQuery,
   notificationCount = 3,
-  userName = "Nguyễn Minh Anh",
+  userName = "Vũ Quang Huy",
 }) => {
   return (
     <header className="flex items-center justify-between gap-4 mb-3.5 shrink-0">
